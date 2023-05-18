@@ -49,48 +49,48 @@ interface IMorphex is IERC20 {
     ) external returns (uint256);
 }
 
-contract StrategyMLPStaker is BaseStrategy {
+contract StrategyGMXArbiStaker is BaseStrategy {
     using SafeERC20 for IERC20;
     /* ========== STATE VARIABLES ========== */
 
     /// @notice Morphex's reward router.
     /// @dev Used for staking/unstaking assets and claiming rewards.
     IMorphex public constant rewardRouter =
-        IMorphex(0x20De7f8283D377fA84575A26c9D484Ee40f55877);
+        IMorphex(0xB95DB5B167D75e6d04227CfFFA61069348d271F5);
 
     /// @notice This contract manages esMPX vesting with MLP as collateral.
     /// @dev We also read vesting data from here.
     IMorphex public constant vestedMlp =
-        IMorphex(0xdBa3A9993833595eAbd2cDE1c235904ad0fD0b86);
+        IMorphex(0xA75287d2f8b217273E7FCD7E86eF07D33972042E);
 
     /// @notice Address of Morphex's vanilla token.
     /// @dev We should only recieve this from vesting esMPX.
     IMorphex public constant mpx =
-        IMorphex(0x66eEd5FF1701E6ed8470DC391F05e27B1d0657eb);
+        IMorphex(0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a);
 
     /// @notice Address of escrowed MPX.
     /// @dev Must be vested over 1 year to convert to MPX.
     IMorphex public constant esMpx =
-        IMorphex(0xe0f606e6730bE531EeAf42348dE43C2feeD43505);
+        IMorphex(0xf42Ae1D54fd613C9bb14810b0588FaAa09a426cA);
 
     /// @notice Address for staked MPX.
     /// @dev Receipt token for staking esMPX or MPX.
     IMorphex public constant sMpx =
-        IMorphex(0xa4157E273D88ff16B3d8Df68894e1fd809DbC007);
+        IMorphex(0xd2D1162512F927a7e282Ef43a362659E4F2a728F);
 
     /// @notice MLP, the LP token for the basket of collateral assets on Morphex.
     /// @dev This is staked for our want token.
     IMorphex public constant mlp =
-        IMorphex(0xd5c313DE2d33bf36014e6c659F13acE112B80a8E);
+        IMorphex(0x4277f8F2c384827B5273592FF7CeBd9f2C1ac258);
 
     /// @notice fsMLP, the representation of our staked MLP that the strategy holds.
     /// @dev When reserved for vesting, this is burned for vestedMlp.
     IMorphex public constant fsMlp =
-        IMorphex(0x49A97680938B4F1f73816d1B70C3Ab801FAd124B);
+        IMorphex(0x1aDDD80E6039594eE970E5872D247bf0414C8903);
 
     /// @notice Address for WFTM, our fee token.
     IERC20 public constant wftm =
-        IERC20(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
+        IERC20(0x82aF49447D8a07e3bd95BD0d56f35241523fBab1);
 
     /// @notice Minimum profit size in USDC that we want to harvest.
     /// @dev Only used in harvestTrigger.
@@ -114,7 +114,7 @@ contract StrategyMLPStaker is BaseStrategy {
 
     constructor(address _vault) BaseStrategy(_vault) {
         // want = sMLP
-        address mlpManager = 0xA3Ea99f8aE06bA0d9A6Cf7618d06AEa4564340E9;
+        address mlpManager = 0x321F653eED006AD1C29D174e17d96351BDe22649;
         wftm.approve(address(mlpManager), type(uint256).max);
         mpx.approve(address(sMpx), type(uint256).max);
 
@@ -475,7 +475,7 @@ contract StrategyMLPStaker is BaseStrategy {
     /// @return Total return in USDC from selling claimable WFTM.
     function claimableProfitInUsdc() public view returns (uint256) {
         IOracle yearnOracle = IOracle(
-            0x57AA88A0810dfe3f9b71a9b179Dd8bF5F956C46A
+            0x043518AB266485dC085a1DB095B8d9C2Fc78E9b9
         ); // yearn lens oracle
         uint256 wftmPrice = yearnOracle.getPriceUsdcRecommended(address(wftm));
 
