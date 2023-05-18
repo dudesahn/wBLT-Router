@@ -49,52 +49,52 @@ interface IMorphex is IERC20 {
     ) external returns (uint256);
 }
 
-contract StrategyMLPStaker is BaseStrategy {
+contract StrategyMummyOpStaker is BaseStrategy {
     using SafeERC20 for IERC20;
     /* ========== STATE VARIABLES ========== */
 
     /// @notice Morphex's reward router.
     /// @dev Used for staking/unstaking assets and claiming rewards.
     IMorphex public constant rewardRouter =
-        IMorphex(0x20De7f8283D377fA84575A26c9D484Ee40f55877);
+        IMorphex();
 
     /// @notice This contract manages esMPX vesting with MLP as collateral.
     /// @dev We also read vesting data from here.
     IMorphex public constant vestedMlp =
-        IMorphex(0xdBa3A9993833595eAbd2cDE1c235904ad0fD0b86);
+        IMorphex();
 
     /// @notice Address of Morphex's vanilla token.
     /// @dev We should only recieve this from vesting esMPX.
     IMorphex public constant mpx =
-        IMorphex(0x66eEd5FF1701E6ed8470DC391F05e27B1d0657eb);
+        IMorphex();
 
     /// @notice Address of escrowed MPX.
     /// @dev Must be vested over 1 year to convert to MPX.
     IMorphex public constant esMpx =
-        IMorphex(0xe0f606e6730bE531EeAf42348dE43C2feeD43505);
+        IMorphex();
 
     /// @notice Address for staked MPX.
     /// @dev Receipt token for staking esMPX or MPX.
     IMorphex public constant sMpx =
-        IMorphex(0xa4157E273D88ff16B3d8Df68894e1fd809DbC007);
+        IMorphex();
 
     /// @notice MLP, the LP token for the basket of collateral assets on Morphex.
     /// @dev This is staked for our want token.
     IMorphex public constant mlp =
-        IMorphex(0xd5c313DE2d33bf36014e6c659F13acE112B80a8E);
+        IMorphex();
 
     /// @notice fsMLP, the representation of our staked MLP that the strategy holds.
     /// @dev When reserved for vesting, this is burned for vMlp.
     IMorphex public constant fsMlp =
-        IMorphex(0x49A97680938B4F1f73816d1B70C3Ab801FAd124B);
+        IMorphex();
 
     /// @notice vMLP, tokenized reserved MLP for vesting esMPX to MPX.
     IMorphex public constant vMlp =
-        IMorphex(0xdBa3A9993833595eAbd2cDE1c235904ad0fD0b86);
+        IMorphex();
 
-    /// @notice Address for WFTM, our fee token.
-    IERC20 public constant wftm =
-        IERC20(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
+    /// @notice Address for WETH, our fee token.
+    IERC20 public constant weth =
+        IERC20();
 
     /// @notice Minimum profit size in USDC that we want to harvest.
     /// @dev Only used in harvestTrigger.
