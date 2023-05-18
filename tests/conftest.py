@@ -42,7 +42,7 @@ def tenderly_fork(web3, chain):
 
 @pytest.fixture(scope="session")
 def token():
-    token_address = "0x7D46aee42de131AFa80Acd72094Cf98f3242b926"  # this should be the address of the ERC-20 used by the strategy/vault (sMLP)
+    token_address = "0xB280D03909Cc18640621955Cb3bC30948DF2Fa9a"  # this should be the address of the ERC-20 used by the strategy/vault (sMLP)
     yield interface.IERC20(token_address)
 
 

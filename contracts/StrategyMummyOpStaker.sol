@@ -56,7 +56,7 @@ contract StrategyMummyOpStaker is BaseStrategy {
     /// @notice Morphex's reward router.
     /// @dev Used for staking/unstaking assets and claiming rewards.
     IMorphex public constant rewardRouter =
-        IMorphex();
+        IMorphex(0xC504Cb49bcADfC8fD56F1de5674ba216aeaFeF01);
 
     /// @notice This contract manages esMPX vesting with MLP as collateral.
     /// @dev We also read vesting data from here.
@@ -66,12 +66,12 @@ contract StrategyMummyOpStaker is BaseStrategy {
     /// @notice Address of Morphex's vanilla token.
     /// @dev We should only recieve this from vesting esMPX.
     IMorphex public constant mpx =
-        IMorphex();
+        IMorphex(0x47536F17F4fF30e64A96a7555826b8f9e66ec468);
 
     /// @notice Address of escrowed MPX.
     /// @dev Must be vested over 1 year to convert to MPX.
     IMorphex public constant esMpx =
-        IMorphex();
+        IMorphex(0x0d8393CEa30df4fAFA7f00f333A62DeE451935C1);
 
     /// @notice Address for staked MPX.
     /// @dev Receipt token for staking esMPX or MPX.
@@ -81,20 +81,20 @@ contract StrategyMummyOpStaker is BaseStrategy {
     /// @notice MLP, the LP token for the basket of collateral assets on Morphex.
     /// @dev This is staked for our want token.
     IMorphex public constant mlp =
-        IMorphex();
+        IMorphex(0xCaB2C0A41556149330F4223C9b76d93C610DAfE6);
 
     /// @notice fsMLP, the representation of our staked MLP that the strategy holds.
     /// @dev When reserved for vesting, this is burned for vMlp.
     IMorphex public constant fsMlp =
-        IMorphex();
+        IMorphex(0xC2C5968e16ec9fABc39e27f9AbFC07C8Cfba6F16);
 
     /// @notice vMLP, tokenized reserved MLP for vesting esMPX to MPX.
     IMorphex public constant vMlp =
-        IMorphex();
+        IMorphex(0xb54AbE3FEC8e1aE64620185A1E111Aa0c3a81542);
 
     /// @notice Address for WETH, our fee token.
     IERC20 public constant weth =
-        IERC20();
+        IERC20(0x4200000000000000000000000000000000000006);
 
     /// @notice Minimum profit size in USDC that we want to harvest.
     /// @dev Only used in harvestTrigger.
@@ -118,8 +118,8 @@ contract StrategyMummyOpStaker is BaseStrategy {
 
     constructor(address _vault) BaseStrategy(_vault) {
         // want = sMLP
-        address mlpManager = 0xA3Ea99f8aE06bA0d9A6Cf7618d06AEa4564340E9;
-        wftm.approve(address(mlpManager), type(uint256).max);
+        address mlpManager = 0x9032aeD8C1F2139E04C1AD6D9F75bdF1D6e5CF5c;
+        weth.approve(address(mlpManager), type(uint256).max);
         mpx.approve(address(sMpx), type(uint256).max);
 
         // set up our max delay
@@ -130,7 +130,7 @@ contract StrategyMummyOpStaker is BaseStrategy {
         harvestProfitMaxInUsdc = 10_000e6;
 
         // set our strategy's name
-        stratName = "StrategyMLPStaker";
+        stratName = "StrategyMummyOpStaker";
     }
 
     /* ========== VIEWS ========== */
@@ -180,8 +180,8 @@ contract StrategyMummyOpStaker is BaseStrategy {
         return sMpx.depositBalances(address(this), address(mpx));
     }
 
-    /// @notice Balance of WFTM claimable from staked esMPX/MPX and MLP fees.
-    function claimableWftm() public view returns (uint256) {
+    /// @notice Balance of weth claimable from staked esMPX/MPX and MLP fees.
+    function claimableweth() public view returns (uint256) {
         return
             IMorphex(0x2D5875ab0eFB999c1f49C798acb9eFbd1cfBF63c).claimable(
                 address(this)
@@ -200,7 +200,7 @@ contract StrategyMummyOpStaker is BaseStrategy {
         override
         returns (uint256 _profit, uint256 _loss, uint256 _debtPayment)
     {
-        // re-stake everything except for esMPX and don't convert to FTM, leave as WFTM
+        // re-stake everything except for esMPX and don't convert to FTM, leave as weth
         _handleRewards();
 
         // vest some esMPX and reserve MLP based on our percentToVest
@@ -249,18 +249,18 @@ contract StrategyMummyOpStaker is BaseStrategy {
         }
     }
 
-    /// @notice Provide any loose WFTM to MLP and stake it.
+    /// @notice Provide any loose weth to MLP and stake it.
     /// @dev May only be called by vault managers.
     /// @return Amount of MLP staked from profits.
     function mintAndStake() external onlyVaultManagers returns (uint256) {
-        uint256 wftmBalance = wftm.balanceOf(address(this));
+        uint256 wethBalance = weth.balanceOf(address(this));
         uint256 newMlp;
 
-        // deposit our WFTM to MLP
-        if (wftmBalance > 0) {
+        // deposit our weth to MLP
+        if (wethBalance > 0) {
             newMlp = rewardRouter.mintAndStakeGlp(
-                address(wftm),
-                wftmBalance,
+                address(weth),
+                wethBalance,
                 0,
                 0
             );
@@ -326,9 +326,9 @@ contract StrategyMummyOpStaker is BaseStrategy {
         // we will also need to accept the transfer on our new strategy ***
         rewardRouter.signalTransfer(_newStrategy);
 
-        uint256 wftmBalance = wftm.balanceOf(address(this));
-        if (wftmBalance > 0) {
-            wftm.safeTransfer(_newStrategy, wftmBalance);
+        uint256 wethBalance = weth.balanceOf(address(this));
+        if (wethBalance > 0) {
+            weth.safeTransfer(_newStrategy, wethBalance);
         }
     }
 
@@ -362,7 +362,7 @@ contract StrategyMummyOpStaker is BaseStrategy {
     }
 
     function _handleRewards() internal onlyVaultManagers {
-        // claim vested MPX, stake MPX, claim esMPX, stake esMPX, stake MPs, claim WFTM, convert WFTM to FTM
+        // claim vested MPX, stake MPX, claim esMPX, stake esMPX, stake MPs, claim weth, convert weth to FTM
         rewardRouter.handleRewards(true, true, true, false, true, true, false);
     }
 
@@ -476,15 +476,15 @@ contract StrategyMummyOpStaker is BaseStrategy {
 
     /// @notice Calculates the profit if all claimable assets were sold for USDC (6 decimals).
     /// @dev Uses yearn's lens oracle, if returned values are strange then troubleshoot there.
-    /// @return Total return in USDC from selling claimable WFTM.
+    /// @return Total return in USDC from selling claimable weth.
     function claimableProfitInUsdc() public view returns (uint256) {
         IOracle yearnOracle = IOracle(
             0x57AA88A0810dfe3f9b71a9b179Dd8bF5F956C46A
         ); // yearn lens oracle
-        uint256 wftmPrice = yearnOracle.getPriceUsdcRecommended(address(wftm));
+        uint256 wethPrice = yearnOracle.getPriceUsdcRecommended(address(weth));
 
         // Oracle returns prices as 6 decimals, so multiply by claimable amount and divide by token decimals (1e18)
-        return (wftmPrice * claimableWftm()) / 1e18;
+        return (wethPrice * claimableweth()) / 1e18;
     }
 
     /// @notice Convert our keeper's eth cost into want
