@@ -13,7 +13,7 @@ def isolate(fn_isolation):
 use_tenderly = False
 
 # use this to set what chain we use. 1 for ETH, 250 for fantom, 10 optimism, 42161 arbitrum
-chain_used = 250
+chain_used = 10
 
 
 ################################################## TENDERLY DEBUGGING ##################################################
@@ -51,8 +51,8 @@ def whale(amount, token):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
     whale = accounts.at(
-        "0x1f5c98965ab469f6197DE432A7f86A0d75d7C0A4", force=True
-    )  # 0x1f5c98965ab469f6197DE432A7f86A0d75d7C0A4, fsMLP, 308k
+        "0xCe52c2E8e54CC717D1B35ac730406141DDCCb47d", force=True
+    )  # 0xCe52c2E8e54CC717D1B35ac730406141DDCCb47d, fsMLP, 490k
     if token.balanceOf(whale) < 2 * amount:
         raise ValueError(
             "Our whale needs more funds. Find another whale or reduce your amount variable."
@@ -70,8 +70,8 @@ def amount(token):
 def profit_whale(profit_amount, token):
     # ideally not the same whale as the main whale, or else they will lose money
     profit_whale = accounts.at(
-        "0xF48883940b4056801de30F12b934DCeA90133ee6", force=True
-    )  # 0xF48883940b4056801de30F12b934DCeA90133ee6, fsMLP, 200k tokens
+        "0x70144e5b5bbf464cFf98d689254dc7C7223E01Ab", force=True
+    )  # 0x70144e5b5bbf464cFf98d689254dc7C7223E01Ab, fsMLP, 270k tokens
     if token.balanceOf(profit_whale) < 5 * profit_amount:
         raise ValueError(
             "Our profit whale needs more funds. Find another whale or reduce your profit_amount variable."
@@ -102,14 +102,14 @@ def old_vault():
 # this is the name we want to give our strategy
 @pytest.fixture(scope="session")
 def strategy_name():
-    strategy_name = "StrategyMLPStaker"
+    strategy_name = "StrategyMummyOpStaker"
     yield strategy_name
 
 
 # this is the name of our strategy in the .sol file
 @pytest.fixture(scope="session")
-def contract_name(StrategyMLPStaker):
-    contract_name = StrategyMLPStaker
+def contract_name(StrategyMummyOpStaker):
+    contract_name = StrategyMummyOpStaker
     yield contract_name
 
 
@@ -272,6 +272,56 @@ elif chain_used == 250:  # fantom
     def trade_factory():
         yield to_sweep
 
+elif chain_used == 10:  # optimism
+
+    @pytest.fixture(scope="session")
+    def gov():
+        yield accounts.at("0xF5d9D6133b698cE29567a90Ab35CfB874204B3A7", force=True)
+
+    @pytest.fixture(scope="session")
+    def health_check():
+        yield interface.IHealthCheck("0x3d8F58774611676fd196D26149C71a9142C45296")
+
+    @pytest.fixture(scope="session")
+    def base_fee_oracle():
+        yield interface.IBaseFeeOracle("0xbf4A735F123A9666574Ff32158ce2F7b7027De9A")
+
+    # set all of the following to Scream Guardian MS
+    @pytest.fixture(scope="session")
+    def management():
+        yield accounts.at("0xea3a15df68fCdBE44Fdb0DB675B2b3A14a148b26", force=True)
+
+    @pytest.fixture(scope="session")
+    def rewards(management):
+        yield management
+
+    @pytest.fixture(scope="session")
+    def guardian(management):
+        yield management
+
+    @pytest.fixture(scope="session")
+    def strategist(management):
+        yield management
+
+    @pytest.fixture(scope="session")
+    def keeper(management):
+        yield management
+
+    @pytest.fixture(scope="session")
+    def to_sweep():
+        # token we can sweep out of strategy (use CRV)
+        yield interface.IERC20("0x0994206dfE8De6Ec6920FF4D779B0d950605Fb53")
+
+    # deploy this eventually
+
+    @pytest.fixture(scope="session")
+    def keeper_wrapper():
+        yield to_sweep
+
+    @pytest.fixture(scope="session")
+    def trade_factory():
+        yield to_sweep
+
 
 @pytest.fixture(scope="module")
 def vault(pm, gov, rewards, guardian, management, token, vault_address):
@@ -300,7 +350,7 @@ def target():
 # this should be a strategy from a different vault to check during migration
 @pytest.fixture(scope="session")
 def other_strategy():
-    yield Contract("0x49D8b010243a4aD4B1dF53E3B3a2986861A0C8c3")
+    yield Contract("0x2e98053f4A1b2595bfaA4d0Ad0a450F8DEb8BBCC")
 
 
 @pytest.fixture
@@ -377,7 +427,7 @@ def to_vest(request):
 def oracle(wMlpPessimisticOracle, guardian, strategy, vault):
     oracle = guardian.deploy(
         wMlpPessimisticOracle,
-        "0xA3Ea99f8aE06bA0d9A6Cf7618d06AEa4564340E9",
+        "0x9032aeD8C1F2139E04C1AD6D9F75bdF1D6e5CF5c",
         strategy.mlp(),
         vault.address,
     )
@@ -387,4 +437,4 @@ def oracle(wMlpPessimisticOracle, guardian, strategy, vault):
 @pytest.fixture(scope="session")
 def destination_strategy():
     # destination strategy of the route
-    yield interface.ICurveStrategy045("0x49D8b010243a4aD4B1dF53E3B3a2986861A0C8c3")
+    yield interface.ICurveStrategy045("0x2e98053f4A1b2595bfaA4d0Ad0a450F8DEb8BBCC")
