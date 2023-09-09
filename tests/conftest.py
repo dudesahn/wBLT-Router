@@ -363,7 +363,7 @@ def strategy(
 # use this similarly to how we use use_yswaps
 @pytest.fixture(scope="session")
 def is_gmx():
-    yield True
+    yield False
 
 
 # use this to set what percentage of our esMPX we vest (0, 10%, 50%)
@@ -382,6 +382,46 @@ def oracle(wMlpPessimisticOracle, guardian, strategy, vault):
         vault.address,
     )
     yield oracle
+
+
+@pytest.fixture(scope="session")
+def destination_strategy():
+    # destination strategy of the route
+    yield interface.ICurveStrategy045("0x49D8b010243a4aD4B1dF53E3B3a2986861A0C8c3")
+
+
+@pytest.fixture(scope="session")
+def fvm():
+    yield interface.IERC20("0x07BB65fAaC502d4996532F834A1B7ba5dC32Ff96")
+
+
+@pytest.fixture(scope="session")
+def ofvm():
+    yield interface.IERC20("0xF9EDdca6B1e548B0EC8cDDEc131464F462b8310D")
+
+
+@pytest.fixture(scope="session")
+def wftm():
+    yield interface.IERC20("0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83")
+
+
+# route to swap from FVM to WFTM
+@pytest.fixture(scope="session")
+def fvm_route(fvm, wftm):
+    fvm_route = [
+        (fvm.address, wftm.address, False),
+    ]
+    yield fvm_route
+
+
+# our dump helper
+@pytest.fixture(scope="function")
+def exercise_helper(ExerciseHelperFVM, guardian, fvm_route):
+    exercise_helper = guardian.deploy(
+        ExerciseHelperFVM,
+        fvm_route,
+    )
+    yield exercise_helper
 
 
 @pytest.fixture(scope="session")
