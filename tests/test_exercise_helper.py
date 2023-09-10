@@ -11,10 +11,12 @@ def test_exercise_helper(
     ofvm_whale = accounts.at("0x9aCf8D0315094d33Aa6875B673EB126483C3A2c0", force=True)
     ofvm_before = ofvm.balanceOf(ofvm_whale)
     wftm_before = wftm.balanceOf(ofvm_whale)
+    to_exercise = ofvm_before
+    slippage = 300
 
     ofvm.approve(exercise_helper, 2**256 - 1, {"from": ofvm_whale})
     fee_before = wftm.balanceOf(exercise_helper.feeAddress())
-    exercise_helper.exercise(ofvm_before, {"from": ofvm_whale})
+    exercise_helper.exercise(to_exercise, slippage, {"from": ofvm_whale})
     assert ofvm.balanceOf(ofvm_whale) == 0
     assert wftm_before < wftm.balanceOf(ofvm_whale)
     profit = wftm.balanceOf(ofvm_whale) - wftm_before
