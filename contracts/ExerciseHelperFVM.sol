@@ -14,6 +14,8 @@ interface IoToken is IERC20 {
     function getDiscountedPrice(
         uint256 _amount
     ) external view returns (uint256);
+
+    function discount() external view returns (uint256);
 }
 
 interface IBalancer {
@@ -83,11 +85,12 @@ contract ExerciseHelperFVM is Ownable2Step {
     bool public flashEntered;
 
     /// @notice Where we send our 0.25% fee
-    address public constant feeAddress =
-        0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
+    address internal feeAddress = 0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
 
-    // this means all of our fee values are in basis points
+    uint256 public fee = 25;
+
     uint256 internal constant MAX_BPS = 10_000;
+    uint256 internal constant DISCOUNT_DENOMINATOR = 100;
 
     /// @notice Route for selling FVM -> WFTM
     IRouter.route[] public fvmToWftm;
@@ -104,26 +107,100 @@ contract ExerciseHelperFVM is Ownable2Step {
     }
 
     /**
-     * @notice Exercise our oFVM for WFTM.
-     * @param _amount The amount of oFVM to exercise to WFTM.
-     * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
+     * @notice Check if spot swap and exercising fall are similar enough for our liking.
+     * @param _optionTokenAmount The amount of oFVM to exercise to WFTM.
+     * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
+     * @return paymentTokenNeeded How much payment token is needed for given amount of oToken.
+     * @return withinSlippageTolerance Whether expected vs real profit fall within our slippage tolerance.
+     * @return realProfit Simulated profit in paymentToken after repaying flash loan.
+     * @return expectedProfit Calculated ideal profit based on redemption discount plus allowed slippage.
+     * @return profitSlippage Expected profit slippage with given oToken amount, 18 decimals. Zero
+     *  means extra profit (positive slippage).
      */
-    function exercise(uint256 _amount, uint256 _slippageAllowed) external {
-        if (_amount == 0) {
+    function quoteExerciseProfit(
+        uint256 _optionTokenAmount,
+        uint256 _profitSlippageAllowed
+    )
+        public
+        view
+        returns (
+            uint256 paymentTokenNeeded,
+            bool withinSlippageTolerance,
+            uint256 realProfit,
+            uint256 expectedProfit,
+            uint256 profitSlippage
+        )
+    {
+        if (_optionTokenAmount == 0) {
             revert("Can't exercise zero");
         }
-        if (_slippageAllowed > MAX_BPS) {
+        if (_profitSlippageAllowed > MAX_BPS) {
             revert("Slippage must be less than 10,000");
         }
 
+        // figure out how much WFTM we need for our oBVM amount
+        paymentTokenNeeded = oBVM.getDiscountedPrice(_optionTokenAmount);
+
+        // compare our token needed to spot price
+        uint256 spotPaymentTokenReceived = router.getAmountOut(
+            _optionTokenAmount,
+            address(bvm),
+            address(wftm),
+            false
+        );
+        realProfit = spotPaymentTokenReceived - paymentTokenNeeded;
+
+        // calculate our ideal profit using the discount
+        uint256 discount = oBVM.discount();
+        expectedProfit =
+            (paymentTokenNeeded * (DISCOUNT_DENOMINATOR - discount)) /
+            discount;
+
+        // if profitSlippage returns zero, we have positive slippage (extra profit)
+        if (expectedProfit > realProfit) {
+            profitSlippage = 1e18 - ((realProfit * 1e18) / expectedProfit);
+        }
+
+        // allow for our expected slippage as well
+        expectedProfit =
+            (expectedProfit * (MAX_BPS - _profitSlippageAllowed)) /
+            MAX_BPS;
+
+        // check if real profit is greater than expected when accounting for allowed slippage
+        if (realProfit > expectedProfit) {
+            withinSlippageTolerance = true;
+        }
+    }
+
+    /**
+     * @notice Exercise our oFVM for WFTM.
+     * @param _amount The amount of oBVM to exercise to WFTM.
+     * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
+     * @param _swapSlippageAllowed Slippage (really price impact) we allow while swapping FVM to WFTM.
+     */
+    function exercise(
+        uint256 _amount,
+        uint256 _profitSlippageAllowed,
+        uint256 _swapSlippageAllowed
+    ) external {
         // transfer option token to this contract
         _safeTransferFrom(address(oFVM), msg.sender, address(this), _amount);
 
-        // figure out how much WFTM we need for our oFVM amount
-        uint256 paymentTokenNeeded = oFVM.getDiscountedPrice(_amount);
+        // check that slippage tolerance for profit is okay
+        (
+            uint256 paymentTokenNeeded,
+            bool withinSlippageTolerance,
+            ,
+            ,
+
+        ) = quoteExerciseProfit(_amount, _profitSlippageAllowed);
+
+        if (!withinSlippageTolerance) {
+            revert("Profit not within slippage tolerance, check TWAP");
+        }
 
         // get our flash loan started
-        _borrowPaymentToken(paymentTokenNeeded, _slippageAllowed);
+        _borrowPaymentToken(paymentTokenNeeded, _swapSlippageAllowed);
 
         // send remaining profit back to user
         _safeTransfer(address(wftm), msg.sender, wftm.balanceOf(address(this)));
@@ -132,7 +209,7 @@ contract ExerciseHelperFVM is Ownable2Step {
     /**
      * @notice Flash loan our WFTM from Balancer.
      * @param _amountNeeded The amount of WFTM needed.
-     * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
+     * @param _slippageAllowed Slippage (really price impact) we allow while swapping BVM to WFTM.
      */
     function _borrowPaymentToken(
         uint256 _amountNeeded,
@@ -183,64 +260,66 @@ contract ExerciseHelperFVM is Ownable2Step {
             (uint256, uint256)
         );
 
-        // exercise our option with our new WFTM, swap all FVM to WFTM
-        uint256 optionTokenBalance = oFVM.balanceOf(address(this));
+        // exercise our option with our new WFTM, swap all BVM to WFTM
+        uint256 optionTokenBalance = oBVM.balanceOf(address(this));
         _exerciseAndSwap(
             optionTokenBalance,
             paymentTokenNeeded,
             slippageAllowed
         );
 
+        // check our output and take fees
+        uint256 wftmAmount = wftm.balanceOf(address(this));
+        _takeFees(wftmAmount);
+
+        // repay our flash loan
         uint256 payback = _amounts[0] + _feeAmounts[0];
         _safeTransfer(address(wftm), address(balancerVault), payback);
-
-        // check our profit and take fees
-        uint256 profit = wftm.balanceOf(address(this));
-        _takeFees(profit);
         flashEntered = false;
     }
 
     /**
-     * @notice Exercise our oFVM, then swap FVM to WFTM.
-     * @param _optionTokenAmount Amount of oFVM to exercise.
+     * @notice Exercise our oBVM, then swap BVM to WFTM.
+     * @param _optionTokenAmount Amount of oBVM to exercise.
      * @param _paymentTokenAmount Amount of WFTM needed to pay for exercising.
-     * @param _slippageAllowed Slippage (really price impact) we allow while exercising.
+     * @param _slippageAllowed Slippage (really price impact) we allow while swapping BVM to WFTM.
      */
     function _exerciseAndSwap(
         uint256 _optionTokenAmount,
         uint256 _paymentTokenAmount,
         uint256 _slippageAllowed
     ) internal {
-        oFVM.exercise(_optionTokenAmount, _paymentTokenAmount, address(this));
-        uint256 fvmReceived = fvm.balanceOf(address(this));
+        oBVM.exercise(_optionTokenAmount, _paymentTokenAmount, address(this));
+        uint256 bvmReceived = bvm.balanceOf(address(this));
 
-        // use this to minimize issues with slippage
-        uint256 wftmPerFvm = router.getAmountOut(
+        // use this to minimize issues with slippage (swapping with too much size)
+        uint256 wftmPerBvm = router.getAmountOut(
             1e18,
-            address(fvm),
+            address(bvm),
             address(wftm),
             false
         );
-        uint256 minAmountOut = (fvmReceived *
-            wftmPerFvm *
+        uint256 minAmountOut = (bvmReceived *
+            wftmPerBvm *
             (MAX_BPS - _slippageAllowed)) / (1e18 * MAX_BPS);
 
-        // use our router to swap from FVM to WFTM
+        // use our router to swap from BVM to WFTM
         router.swapExactTokensForTokens(
-            fvmReceived,
+            bvmReceived,
             minAmountOut,
-            fvmToWftm,
+            bvmToWftm,
             address(this),
             block.timestamp
         );
     }
 
     /**
-     * @notice Apply fees to our profit amount.
-     * @param _profitAmount Amount to apply 0.25% fee to.
+     * @notice Apply fees to our after-swap total.
+     * @dev Default is 0.25% but this may be updated later.
+     * @param _amount Amount to apply our fee to.
      */
-    function _takeFees(uint256 _profitAmount) internal {
-        uint256 toSend = (_profitAmount * 25) / MAX_BPS;
+    function _takeFees(uint256 _amount) internal {
+        uint256 toSend = (_amount * fee) / MAX_BPS;
         _safeTransfer(address(wftm), feeAddress, toSend);
     }
 
@@ -255,6 +334,20 @@ contract ExerciseHelperFVM is Ownable2Step {
         uint256 _tokenAmount
     ) external onlyOwner {
         _safeTransfer(_tokenAddress, owner(), _tokenAmount);
+    }
+
+    /**
+     * @notice
+     *  Update fee for oBMX -> WFTM conversion.
+     * @param _recipient Fee recipient address.
+     * @param _newFee New fee, out of 10,000.
+     */
+    function setFee(address _recipient, uint256 _newFee) external onlyOwner {
+        if (_newFee > DISCOUNT_DENOMINATOR) {
+            revert("Fee max is 1%");
+        }
+        fee = _newFee;
+        feeAddress = _recipient;
     }
 
     /* ========== HELPER FUNCTIONS ========== */
