@@ -78,14 +78,14 @@ contract ExerciseHelperFVM is Ownable2Step {
         IBalancer(0x20dd72Ed959b6147912C2e529F0a0C651c33c9ce);
 
     /// @notice FVM router for swaps
-    IRouter constant router =
+    IRouter public constant router =
         IRouter(0x2E14B53E2cB669f3A974CeaF6C735e134F3Aa9BC);
 
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
     bool public flashEntered;
 
     /// @notice Where we send our 0.25% fee
-    address internal feeAddress = 0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
+    address public feeAddress = 0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a;
 
     uint256 public fee = 25;
 
