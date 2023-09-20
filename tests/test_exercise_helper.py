@@ -22,7 +22,7 @@ def test_exercise_helper(
     fee_before = wftm.balanceOf("0x58761D6C6bF6c4bab96CaE125a2e5c8B1859b48a")
 
     # use our preset slippage and amount
-    result = exercise_helper.quoteExerciseProfit(to_exercise, 0)
+    result = exercise_helper.quoteExerciseProfit(ofvm, to_exercise, 0)
     print("Result", result.dict())
     real_slippage = (result["expectedProfit"] - result["realProfit"]) / result[
         "expectedProfit"
@@ -30,7 +30,7 @@ def test_exercise_helper(
     print("Slippage:", "{:,.2f}%".format(real_slippage * 100))
 
     exercise_helper.exercise(
-        to_exercise, profit_slippage, swap_slippage, {"from": ofvm_whale}
+        ofvm, to_exercise, profit_slippage, swap_slippage, {"from": ofvm_whale}
     )
 
     assert ofvm.balanceOf(ofvm_whale) == ofvm_before - to_exercise

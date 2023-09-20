@@ -16,6 +16,8 @@ interface IoToken is IERC20 {
     ) external view returns (uint256);
 
     function discount() external view returns (uint256);
+
+    function underlyingToken() external view returns (address);
 }
 
 interface IBalancer {
@@ -34,18 +36,6 @@ interface IRouter {
         bool stable;
     }
 
-    function getAmountOut(
-        uint amountIn,
-        address tokenIn,
-        address tokenOut,
-        bool stable
-    ) external view returns (uint amount);
-
-    function getAmountsOut(
-        uint amountIn,
-        route[] memory routes
-    ) external view returns (uint[] memory amounts);
-
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
@@ -53,32 +43,32 @@ interface IRouter {
         address to,
         uint deadline
     ) external returns (uint[] memory amounts);
+
+    function getAmountOut(
+        uint amountIn,
+        address tokenIn,
+        address tokenOut,
+        bool stable
+    ) external view returns (uint amount);
 }
 
 /**
- * @title Exercise Helper FVM
- * @notice This contract easily converts oFVM to WFTM using flash loans.
+ * @title Simple Exercise Helper
+ * @notice This contract easily converts oTokens paired with WFTM
+ *  such as oFVM to WFTM using flash loans.
  */
 
-contract ExerciseHelperFVM is Ownable2Step {
-    /// @notice Option token address
-    IoToken public constant oFVM =
-        IoToken(0xF9EDdca6B1e548B0EC8cDDEc131464F462b8310D);
-
+contract SimpleExerciseHelper is Ownable2Step {
     /// @notice WFTM, payment token
-    IERC20 public constant wftm =
+    IERC20 internal constant wftm =
         IERC20(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
 
-    /// @notice FVM, sell this for WFTM
-    IERC20 public constant fvm =
-        IERC20(0x07BB65fAaC502d4996532F834A1B7ba5dC32Ff96);
-
-    /// @notice Flashloan from Beethoven (Balancer) vault
-    IBalancer public constant balancerVault =
+    /// @notice Flashloan from Balancer vault
+    IBalancer internal constant balancerVault =
         IBalancer(0x20dd72Ed959b6147912C2e529F0a0C651c33c9ce);
 
     /// @notice FVM router for swaps
-    IRouter public constant router =
+    IRouter internal constant router =
         IRouter(0x2E14B53E2cB669f3A974CeaF6C735e134F3Aa9BC);
 
     /// @notice Check whether we are in the middle of a flashloan (used for callback)
@@ -92,23 +82,10 @@ contract ExerciseHelperFVM is Ownable2Step {
     uint256 internal constant MAX_BPS = 10_000;
     uint256 internal constant DISCOUNT_DENOMINATOR = 100;
 
-    /// @notice Route for selling FVM -> WFTM
-    IRouter.route[] public fvmToWftm;
-
-    constructor(IRouter.route[] memory _fvmToWftm) {
-        // create our swap route
-        for (uint i; i < _fvmToWftm.length; ++i) {
-            fvmToWftm.push(_fvmToWftm[i]);
-        }
-
-        // do necessary approvals
-        fvm.approve(address(router), type(uint256).max);
-        wftm.approve(address(oFVM), type(uint256).max);
-    }
-
     /**
      * @notice Check if spot swap and exercising fall are similar enough for our liking.
-     * @param _optionTokenAmount The amount of oFVM to exercise to WFTM.
+     * @param _oToken The option token we are exercising.
+     * @param _optionTokenAmount The amount of oToken to exercise to WFTM.
      * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
      * @return paymentTokenNeeded How much payment token is needed for given amount of oToken.
      * @return withinSlippageTolerance Whether expected vs real profit fall within our slippage tolerance.
@@ -118,6 +95,7 @@ contract ExerciseHelperFVM is Ownable2Step {
      *  means extra profit (positive slippage).
      */
     function quoteExerciseProfit(
+        address _oToken,
         uint256 _optionTokenAmount,
         uint256 _profitSlippageAllowed
     )
@@ -138,20 +116,22 @@ contract ExerciseHelperFVM is Ownable2Step {
             revert("Slippage must be less than 10,000");
         }
 
-        // figure out how much WFTM we need for our oFVM amount
-        paymentTokenNeeded = oFVM.getDiscountedPrice(_optionTokenAmount);
+        // figure out how much WFTM we need for our oToken amount
+        paymentTokenNeeded = IoToken(_oToken).getDiscountedPrice(
+            _optionTokenAmount
+        );
 
         // compare our token needed to spot price
         uint256 spotPaymentTokenReceived = router.getAmountOut(
             _optionTokenAmount,
-            address(fvm),
+            IoToken(_oToken).underlyingToken(),
             address(wftm),
             false
         );
         realProfit = spotPaymentTokenReceived - paymentTokenNeeded;
 
         // calculate our ideal profit using the discount
-        uint256 discount = oFVM.discount();
+        uint256 discount = IoToken(_oToken).discount();
         expectedProfit =
             (paymentTokenNeeded * (DISCOUNT_DENOMINATOR - discount)) /
             discount;
@@ -173,18 +153,23 @@ contract ExerciseHelperFVM is Ownable2Step {
     }
 
     /**
-     * @notice Exercise our oFVM for WFTM.
-     * @param _amount The amount of oFVM to exercise to WFTM.
+     * @notice Exercise our oToken for WFTM.
+     * @param _oToken The option token we are exercising.
+     * @param _amount The amount of oToken to exercise to WFTM.
      * @param _profitSlippageAllowed Considers effect of TWAP vs spot pricing of options on profit outcomes.
-     * @param _swapSlippageAllowed Slippage (really price impact) we allow while swapping FVM to WFTM.
+     * @param _swapSlippageAllowed Slippage (really price impact) we allow while swapping underlying to WFTM.
      */
     function exercise(
+        address _oToken,
         uint256 _amount,
         uint256 _profitSlippageAllowed,
         uint256 _swapSlippageAllowed
     ) external {
+        // first person does the approvals for everyone else, what a nice person!
+        _checkAllowance(_oToken);
+
         // transfer option token to this contract
-        _safeTransferFrom(address(oFVM), msg.sender, address(this), _amount);
+        _safeTransferFrom(_oToken, msg.sender, address(this), _amount);
 
         // check that slippage tolerance for profit is okay
         (
@@ -193,14 +178,14 @@ contract ExerciseHelperFVM is Ownable2Step {
             ,
             ,
 
-        ) = quoteExerciseProfit(_amount, _profitSlippageAllowed);
+        ) = quoteExerciseProfit(_oToken, _amount, _profitSlippageAllowed);
 
         if (!withinSlippageTolerance) {
             revert("Profit not within slippage tolerance, check TWAP");
         }
 
         // get our flash loan started
-        _borrowPaymentToken(paymentTokenNeeded, _swapSlippageAllowed);
+        _borrowPaymentToken(_oToken, paymentTokenNeeded, _swapSlippageAllowed);
 
         // send remaining profit back to user
         _safeTransfer(address(wftm), msg.sender, wftm.balanceOf(address(this)));
@@ -208,10 +193,12 @@ contract ExerciseHelperFVM is Ownable2Step {
 
     /**
      * @notice Flash loan our WFTM from Balancer.
+     * @param _oToken The option token we are exercising.
      * @param _amountNeeded The amount of WFTM needed.
-     * @param _slippageAllowed Slippage (really price impact) we allow while swapping FVM to WFTM.
+     * @param _slippageAllowed Slippage (really price impact) we allow while swapping underlying to WFTM.
      */
     function _borrowPaymentToken(
+        address _oToken,
         uint256 _amountNeeded,
         uint256 _slippageAllowed
     ) internal {
@@ -225,7 +212,11 @@ contract ExerciseHelperFVM is Ownable2Step {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = _amountNeeded;
 
-        bytes memory userData = abi.encode(_amountNeeded, _slippageAllowed);
+        bytes memory userData = abi.encode(
+            _oToken,
+            _amountNeeded,
+            _slippageAllowed
+        );
 
         // call the flash loan
         balancerVault.flashLoan(address(this), tokens, amounts, userData);
@@ -255,14 +246,16 @@ contract ExerciseHelperFVM is Ownable2Step {
         }
 
         // pull our option info from the userData
-        (uint256 paymentTokenNeeded, uint256 slippageAllowed) = abi.decode(
-            _userData,
-            (uint256, uint256)
-        );
+        (
+            address _oToken,
+            uint256 paymentTokenNeeded,
+            uint256 slippageAllowed
+        ) = abi.decode(_userData, (address, uint256, uint256));
 
-        // exercise our option with our new WFTM, swap all FVM to WFTM
-        uint256 optionTokenBalance = oFVM.balanceOf(address(this));
+        // exercise our option with our new WFTM, swap all underlying to WFTM
+        uint256 optionTokenBalance = IoToken(_oToken).balanceOf(address(this));
         _exerciseAndSwap(
+            _oToken,
             optionTokenBalance,
             paymentTokenNeeded,
             slippageAllowed
@@ -279,35 +272,52 @@ contract ExerciseHelperFVM is Ownable2Step {
     }
 
     /**
-     * @notice Exercise our oFVM, then swap FVM to WFTM.
-     * @param _optionTokenAmount Amount of oFVM to exercise.
+     * @notice Exercise our oToken, then swap underlying to WFTM.
+     * @param _oToken The option token we are exercising.
+     * @param _optionTokenAmount Amount of oToken to exercise.
      * @param _paymentTokenAmount Amount of WFTM needed to pay for exercising.
-     * @param _slippageAllowed Slippage (really price impact) we allow while swapping FVM to WFTM.
+     * @param _slippageAllowed Slippage (really price impact) we allow while swapping underlying to WFTM.
      */
     function _exerciseAndSwap(
+        address _oToken,
         uint256 _optionTokenAmount,
         uint256 _paymentTokenAmount,
         uint256 _slippageAllowed
     ) internal {
-        oFVM.exercise(_optionTokenAmount, _paymentTokenAmount, address(this));
-        uint256 fvmReceived = fvm.balanceOf(address(this));
+        // pull our underlying from the oToken
+        IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
 
-        // use this to minimize issues with slippage (swapping with too much size)
-        uint256 wftmPerFvm = router.getAmountOut(
-            1e18,
-            address(fvm),
+        // exercise
+        IoToken(_oToken).exercise(
+            _optionTokenAmount,
+            _paymentTokenAmount,
+            address(this)
+        );
+        uint256 underlyingReceived = underlying.balanceOf(address(this));
+
+        IRouter.route[] memory tokenToWftm = new IRouter.route[](1);
+        tokenToWftm[0] = IRouter.route(
+            address(underlying),
             address(wftm),
             false
         );
-        uint256 minAmountOut = (fvmReceived *
-            wftmPerFvm *
+
+        // use this to minimize issues with slippage (swapping with too much size)
+        uint256 wftmPerToken = router.getAmountOut(
+            1e18,
+            address(underlying),
+            address(wftm),
+            false
+        );
+        uint256 minAmountOut = (underlyingReceived *
+            wftmPerToken *
             (MAX_BPS - _slippageAllowed)) / (1e18 * MAX_BPS);
 
-        // use our router to swap from FVM to WFTM
+        // use our router to swap from underlying to WFTM
         router.swapExactTokensForTokens(
-            fvmReceived,
+            underlyingReceived,
             minAmountOut,
-            fvmToWftm,
+            tokenToWftm,
             address(this),
             block.timestamp
         );
@@ -321,6 +331,17 @@ contract ExerciseHelperFVM is Ownable2Step {
     function _takeFees(uint256 _amount) internal {
         uint256 toSend = (_amount * fee) / MAX_BPS;
         _safeTransfer(address(wftm), feeAddress, toSend);
+    }
+
+    // helper to approve new oTokens to spend WFTM, etc. from this contract
+    function _checkAllowance(address _oToken) internal {
+        if (wftm.allowance(address(this), _oToken) == 0) {
+            wftm.approve(_oToken, type(uint256).max);
+
+            // approve router to spend underlying from this contract
+            IERC20 underlying = IERC20(IoToken(_oToken).underlyingToken());
+            underlying.approve(address(router), type(uint256).max);
+        }
     }
 
     /**
@@ -338,7 +359,7 @@ contract ExerciseHelperFVM is Ownable2Step {
 
     /**
      * @notice
-     *  Update fee for oBMX -> WFTM conversion.
+     *  Update fee for oToken -> WFTM conversion.
      * @param _recipient Fee recipient address.
      * @param _newFee New fee, out of 10,000.
      */

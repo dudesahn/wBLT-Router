@@ -405,21 +405,11 @@ def wftm():
     yield interface.IERC20("0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83")
 
 
-# route to swap from FVM to WFTM
-@pytest.fixture(scope="session")
-def fvm_route(fvm, wftm):
-    fvm_route = [
-        (fvm.address, wftm.address, False),
-    ]
-    yield fvm_route
-
-
 # our dump helper
 @pytest.fixture(scope="function")
-def exercise_helper(ExerciseHelperFVM, guardian, fvm_route):
+def exercise_helper(SimpleExerciseHelper, guardian):
     exercise_helper = guardian.deploy(
-        ExerciseHelperFVM,
-        fvm_route,
+        SimpleExerciseHelper,
     )
     yield exercise_helper
 
