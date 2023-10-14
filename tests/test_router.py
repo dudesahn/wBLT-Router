@@ -24,13 +24,15 @@ def test_basic_swaps(
     # test views
     to_mint = router.getMintAmountWrappedBLT(weth, weth_to_deposit)
     print(
-        "\n🥸 We minted this much wBLT with 0.002 ETH", "{:,.18f}".format(to_mint / 1e18)
+        "\n🧮  We estimate we'll mint this much wBLT with 0.002 ETH",
+        "{:,.18f}".format(to_mint / 1e18),
     )
 
     # how much weth do we need for that same amount of WBLT?
     weth_needed = router.quoteMintAmountBLT(weth, to_mint)
+    print("Now estimate how much WETH we need to mint that amount of wBLT")
     error = abs(weth_needed - weth_to_deposit) / weth_to_deposit * 100
-    print("Error:", "{:,.10f}%".format(error))
+    print("💥 Percent Error:", "{:,.10f}%".format(error))
 
     print(
         "{:,.18f}".format(weth_needed / 1e18),
@@ -40,29 +42,61 @@ def test_basic_swaps(
     )
 
     # check how much wBLT we need to receive a given amount
-    weth_to_receive = 3786844000000000
-    to_redeem = router.quoteRedeemAmountBLT(weth, weth_to_receive)
     print(
-        "\n🤔 We need to redeem this much wBLT to receive our random ETH amount",
-        "{:,.18f}".format(to_redeem / 1e18),
+        "\nChoose a random amount of WETH we want to receive, then check how much wBLT we need to get that"
     )
+    weth_to_receive = 3786844027239347
+    original = weth_to_receive
 
-    # how much weth do we get for redeeming that amount of wBLT
-    weth_out = router.getRedeemAmountWrappedBLT(weth, to_redeem)
-    error = abs(weth_out - weth_to_receive) / weth_to_receive * 100
-    print("Error:", "{:,.10f}%".format(error))
+    # do a bit of fuzzing here
+    x = 0
+    final_pass = 5  # just set this == 1 to only do it once, ran at 67 during testing
+    while x < final_pass:
+        weth_to_receive += x
 
-    to_redeem_two = router.quoteRedeemAmountBLT(weth, weth_out)
-    print("\n🤔 Redeem wBLT for output ETH", "{:,.18f}".format(to_redeem_two / 1e18))
+        to_redeem = router.quoteRedeemAmountBLT(weth, weth_to_receive)
 
-    print("COMPARE\n", weth_to_receive, "\n", weth_out)
+        # how much weth do we get for redeeming that amount of wBLT
+        weth_out = router.getRedeemAmountWrappedBLT(weth, to_redeem)
+        error = abs(weth_out - weth_to_receive) / weth_to_receive * 100
+        to_redeem_two = router.quoteRedeemAmountBLT(weth, weth_out)
+        assert weth_to_receive == weth_out
 
-    print(
-        "WETH received for",
-        "{:,.18f}".format(to_redeem / 1e18),
-        "wBLT",
-        "{:,.18f}".format(weth_out / 1e18),
-    )
+        # only print our first and our last time
+        if x == 0 or x == final_pass - 1:
+            print("🏦 WETH we want out from wBLT:", weth_to_receive)
+            print(
+                "\n🥪 We need to redeem this much wBLT to receive our random ETH amount",
+                "\n{:,.18f}".format(to_redeem / 1e18),
+                "wBLT\n",
+            )
+            print(
+                "🧮  Now, we calculate how much WETH that amount of wBLT would give us"
+            )
+            print("🏦 WETH out:", weth_out)
+            print("💥 Percent Error:", "{:,.10f}%".format(error))
+            print(
+                "\n🥪 Estimate how much wBLT we need to redeem for the re-calculated amount of ETH from above:",
+                "\n{:,.18f}".format(to_redeem_two / 1e18),
+                "wBLT",
+            )
+            print(
+                "\nIdeally these values should be identical 🌚🌝\n",
+                weth_to_receive,
+                weth_out,
+            )
+            print(
+                "🏦 Estimate that we will receive",
+                "{:,.18f}".format(weth_out / 1e18),
+                "WETH for",
+                "{:,.18f}".format(to_redeem / 1e18),
+                "wBLT",
+            )
+        else:
+            print("✅ ", x + 1, "out of", final_pass)
+
+        # increment for our loop
+        x += 1
 
     # test redeeming our amount of wBLT
     w_blt.approve(router, 2**256 - 1, {"from": screamsh})
@@ -70,14 +104,18 @@ def test_basic_swaps(
         (w_blt.address, weth.address, False),
     ]
     before = weth.balanceOf(screamsh)
+    to_redeem = router.quoteRedeemAmountBLT(weth, original)
+    print("Original WETH:", original)
     router.swapExactTokensForTokens(
         to_redeem, 0, wblt_to_weth, screamsh, 2**256 - 1, {"from": screamsh}
     )
     received_swap = weth.balanceOf(screamsh) - before
-    print("Real output:", received_swap)
+    print(
+        "🖼 When we actually redeem that much wBLT, here's what we get:", received_swap
+    )
+    assert received_swap >= original
+    print("🥳 We received more WETH in reality than estimated")
     chain.undo()
-
-    return
 
     # swap for wBLT, compare it to minting directly on morphex
     # mint via our router
@@ -85,7 +123,7 @@ def test_basic_swaps(
     weth_to_wblt = [
         (weth.address, w_blt.address, False),
     ]
-    weth_to_mint = 2e15
+    weth_to_mint = weth.balanceOf(screamsh)
     before = w_blt.balanceOf(screamsh)
     router.swapExactTokensForTokens(
         weth_to_mint, 0, weth_to_wblt, screamsh, 2**256 - 1, {"from": screamsh}
@@ -97,9 +135,10 @@ def test_basic_swaps(
     weth.approve(glp_manager, 2**256 - 1, {"from": screamsh})
     before_new = w_blt.balanceOf(screamsh)
     reward_router.mintAndStakeGlp(weth.address, weth_to_mint, 0, 0, {"from": screamsh})
+    s_glp_balance = s_glp.balanceOf(screamsh)
 
     helper = Contract("0x7EF2dBc5B28A3BdE7162442f95C691Be7F820867")
-    estimated_shares = helper.amountToShares(w_blt.address, s_glp.balanceOf(screamsh))
+    estimated_shares = helper.amountToShares(w_blt.address, s_glp_balance)
 
     fs_blp = Contract("0x2D5875ab0eFB999c1f49C798acb9eFbd1cfBF63c")
     print("Started:", s_glp.balanceOf(screamsh))
@@ -111,6 +150,7 @@ def test_basic_swaps(
     s_blp_transferred = s_glp.balanceOf(w_blt) - s_vault_before
     print("FS:", fs_blp_transferred)
     print("S:", fs_blp_transferred)
+    chain.undo(3)
 
     # check that we got the same if no locked profit left
     decay_time = 1e18 / w_blt.lockedProfitDegradation()
@@ -127,10 +167,7 @@ def test_basic_swaps(
         "{:,.18f}".format(estimated_shares / 1e18),
     )
 
-    chain.sleep(86400)
-    chain.mine(1)
-
-    weth_to_swap = 2e16
+    weth_to_swap = weth.balanceOf(screamsh)
     weth_to_bmx = [
         (weth.address, w_blt.address, False),
         (w_blt.address, bmx.address, False),
@@ -152,6 +189,7 @@ def test_basic_swaps(
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
     print("✅  Swapped to BMX")
+    chain.undo()
 
     # approve our BMX, swap for USDC
     bmx.approve(router, 2**256 - 1, {"from": screamsh})
@@ -170,9 +208,10 @@ def test_basic_swaps(
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
     print("✅  Swapped back from BMX to USDC")
+    chain.undo()
 
     # swap to wBLT
-    weth_to_swap = 1e14
+    weth_to_swap = weth.balanceOf(screamsh)
     weth_to_wblt = [(weth.address, w_blt.address, False)]
     before = w_blt.balanceOf(screamsh)
     router.swapExactTokensForTokens(
@@ -184,6 +223,7 @@ def test_basic_swaps(
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
     print("✅  Swapped from WETH to wBLT")
+    chain.undo()
 
     # swap wBLT to WETH
     wblt_to_swap = w_blt.balanceOf(screamsh)
@@ -210,6 +250,7 @@ def test_eth_swaps(
     factory,
     usdc,
 ):
+
     # ETH whale sends some to screamsh
     eth_whale = accounts.at("0x224D8Fd7aB6AD4c6eb4611Ce56EF35Dec2277F03", force=True)
     eth_whale.transfer(screamsh, 5e18)
@@ -313,6 +354,7 @@ def test_eth_swaps(
     print("✅  Swapped back from BMX to ether\n")
 
 
+# note that this transaction will revert with ganache sometimes
 def test_long_route_swap(
     bmx,
     screamsh,
@@ -321,7 +363,13 @@ def test_long_route_swap(
     weth,
     factory,
     usdc,
+    tests_using_tenderly,
 ):
+    # the second long swap back reverts w/ "K" error if using ganache 😭
+    if not tests_using_tenderly:
+        print("\n🚨🚨 Need to use Tenderly 🥩 to test the long swap 🚨🚨\n")
+        return
+
     # whales deposit USDC and WETH to give us some flexibility, USDC-WETH pool on aerodrome
     token_whale = accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
     weth.approve(router, 2**256 - 1, {"from": token_whale})

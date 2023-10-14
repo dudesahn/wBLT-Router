@@ -10,6 +10,7 @@ def isolate(fn_isolation):
 
 
 # set this for if we want to use tenderly or not; mostly helpful because with brownie.reverts fails in tenderly forks.
+# for this repo, especially helper with the long swap router test
 use_tenderly = False
 
 # use this to set what chain we use. 1 for ETH, 250 for fantom, 10 optimism, 42161 arbitrum, 8453 base
@@ -477,8 +478,8 @@ if chain_used == 8453:
     # use these for our BLT router testing
     @pytest.fixture(scope="function")
     def router(wBLTRouter, screamsh):
-        # router = screamsh.deploy(wBLTRouter)
-        router = Contract("0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5")  # v22, testing
+        router = screamsh.deploy(wBLTRouter)
+        # router = Contract("0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5")  # v22, testing
         yield router
 
     @pytest.fixture(scope="session")
