@@ -11,17 +11,20 @@ def test_basic_swaps(
     weth,
     factory,
     usdc,
+    round_up,
+    weth_whale,
+    test_swap,
 ):
     # clear out any balance
     reward_router = Contract("0x49a97680938b4f1f73816d1b70c3ab801fad124b")
     glp_manager = Contract("0x9fAc7b75f367d5B35a6D6D0a09572eFcC3D406C5")
     s_glp = Contract("0x64755939a80BC89E1D2d0f93A312908D348bC8dE")
-    weth_to_deposit = 2e15
     s_glp.approve(w_blt, 2**256 - 1, {"from": screamsh})
     if s_glp.balanceOf(screamsh) > 0:
         w_blt.deposit({"from": screamsh})
 
     # test views
+    weth_to_deposit = 2e15
     to_mint = router.getMintAmountWrappedBLT(weth, weth_to_deposit)
     print(
         "\n🧮  We estimate we'll mint this much wBLT with 0.002 ETH",
@@ -48,19 +51,65 @@ def test_basic_swaps(
     weth_to_receive = 3786844027239347
     original = weth_to_receive
 
+    w_blt.approve(router, 2**256 - 1, {"from": screamsh})
+    weth.approve(router, 2**256 - 1, {"from": screamsh})
+    wblt_to_weth = [
+        (w_blt.address, weth.address, False),
+    ]
+    weth_to_wblt = [
+        (weth.address, w_blt.address, False),
+    ]
+    weth.transfer(screamsh, 200e18, {"from": weth_whale})
+    before = weth.balanceOf(screamsh)
+    to_swap_in = 0
+
+    # take our snapshot
+    chain.snapshot()
+
     # do a bit of fuzzing here
     x = 0
-    final_pass = 5  # just set this == 1 to only do it once, ran at 67 during testing
+    final_pass = 137  # just set this == 1 to only do it once, ran at 137 during testing
     while x < final_pass:
         weth_to_receive += x
 
+        if test_swap:
+            to_swap_in = 1e18
+            # do a small swap first, just like in our helper
+            output = router.swapExactTokensForTokens(
+                to_swap_in,
+                0,
+                weth_to_wblt,
+                weth_whale,
+                2**256 - 1,
+                {"from": screamsh},
+            )
+
         to_redeem = router.quoteRedeemAmountBLT(weth, weth_to_receive)
 
-        # how much weth do we get for redeeming that amount of wBLT
-        weth_out = router.getRedeemAmountWrappedBLT(weth, to_redeem)
+        # how much weth do we get for redeeming that amount of wBLT (round up)
+        weth_out = router.getRedeemAmountWrappedBLT(weth, to_redeem, round_up)
         error = abs(weth_out - weth_to_receive) / weth_to_receive * 100
         to_redeem_two = router.quoteRedeemAmountBLT(weth, weth_out)
-        assert weth_to_receive == weth_out
+
+        # depending on whether we round up or down getRedeemAmountWrappedBLT, we expect different answers
+        if round_up:
+            assert weth_out >= weth_to_receive
+        else:
+            assert weth_to_receive >= weth_out
+
+        # test redeeming our amount of wBLT
+        tx = router.swapExactTokensForTokens(
+            to_redeem,
+            0,
+            wblt_to_weth,
+            screamsh,
+            2**256 - 1,
+            {"from": screamsh},
+        )
+        received_swap = weth.balanceOf(screamsh) + to_swap_in - before
+
+        # do this instead of using the internal getAmountsOut check since that naturally underestimates output
+        assert received_swap >= weth_to_receive
 
         # only print our first and our last time
         if x == 0 or x == final_pass - 1:
@@ -81,10 +130,24 @@ def test_basic_swaps(
                 "wBLT",
             )
             print(
-                "\nIdeally these values should be identical 🌚🌝\n",
+                "\nIdeally these values would be identical 🌚🌝\n",
                 weth_to_receive,
+                "⬅️ Target 🎯\n",
                 weth_out,
+                "⬅️ Estimate 🧮",
             )
+            diff = weth_out - weth_to_receive
+            if diff != 1:
+                if diff == 0:
+                    print("✅ ", diff)
+                else:
+                    print(
+                        "🚨🚨 Off by:",
+                        diff,
+                        "🚨🚨",
+                    )
+            else:
+                print("🤔", diff)
             print(
                 "🏦 Estimate that we will receive",
                 "{:,.18f}".format(weth_out / 1e18),
@@ -93,29 +156,70 @@ def test_basic_swaps(
                 "wBLT",
             )
         else:
-            print("✅ ", x + 1, "out of", final_pass)
+
+            if round_up:
+                print(
+                    "\nIdeally these values would be identical 🌚🌝\n",
+                    weth_to_receive,
+                    "⬅️ Target 🎯\n",
+                    weth_out,
+                    "⬅️ Estimate 🧮",
+                )
+                print("💵 To redeem:", to_redeem / 1e18)
+                diff = weth_out - weth_to_receive
+                if diff != 1:
+                    if diff == 0:
+                        print("✅ ", diff)
+                    else:
+                        print(
+                            "🚨🚨 Off by:",
+                            diff,
+                            "🚨🚨",
+                        )
+                else:
+                    print("🤔", diff)
+            else:
+                print(
+                    "\nIdeally these values would be identical 🌚🌝\n",
+                    weth_to_receive,
+                    "⬅️ Target 🎯\n",
+                    weth_out,
+                    "⬅️ Estimate 🧮",
+                )
+                print("💵 To redeem:", to_redeem / 1e18)
+                diff = weth_to_receive - weth_out
+                if diff != 1:
+                    if diff == 0:
+                        print("✅ ", diff)
+                    else:
+                        print(
+                            "🚨🚨 Off by:",
+                            diff,
+                            "🚨🚨",
+                        )
+                else:
+                    print("🤔", diff)
+            print(
+                "✅ ",
+                x + 1,
+                "out of",
+                final_pass,
+                "round_up:",
+                round_up,
+                "test_swap:",
+                test_swap,
+            )
+
+        # we should ALWAYS receive greater than or equal WETH than estimated, regardless of round_up
+        print(
+            "🥳 We received at least as much WETH as estimated, extra:",
+            received_swap - weth_to_receive,
+        )
 
         # increment for our loop
+        chain.revert()
         x += 1
-
-    # test redeeming our amount of wBLT
-    w_blt.approve(router, 2**256 - 1, {"from": screamsh})
-    wblt_to_weth = [
-        (w_blt.address, weth.address, False),
-    ]
-    before = weth.balanceOf(screamsh)
-    to_redeem = router.quoteRedeemAmountBLT(weth, original)
-    print("Original WETH:", original)
-    router.swapExactTokensForTokens(
-        to_redeem, 0, wblt_to_weth, screamsh, 2**256 - 1, {"from": screamsh}
-    )
-    received_swap = weth.balanceOf(screamsh) - before
-    print(
-        "🖼 When we actually redeem that much wBLT, here's what we get:", received_swap
-    )
-    assert received_swap >= original
-    print("🥳 We received more WETH in reality than estimated")
-    chain.undo()
+        weth_to_receive = original
 
     # swap for wBLT, compare it to minting directly on morphex
     # mint via our router
@@ -129,7 +233,7 @@ def test_basic_swaps(
         weth_to_mint, 0, weth_to_wblt, screamsh, 2**256 - 1, {"from": screamsh}
     )
     received_swap = w_blt.balanceOf(screamsh) - before
-    chain.undo()
+    chain.revert()
 
     # mint directly, should be exactly the same
     weth.approve(glp_manager, 2**256 - 1, {"from": screamsh})
@@ -150,7 +254,7 @@ def test_basic_swaps(
     s_blp_transferred = s_glp.balanceOf(w_blt) - s_vault_before
     print("FS:", fs_blp_transferred)
     print("S:", fs_blp_transferred)
-    chain.undo(3)
+    chain.revert()
 
     # check that we got the same if no locked profit left
     decay_time = 1e18 / w_blt.lockedProfitDegradation()
@@ -189,7 +293,7 @@ def test_basic_swaps(
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
     print("✅  Swapped to BMX")
-    chain.undo()
+    chain.revert()
 
     # approve our BMX, swap for USDC
     bmx.approve(router, 2**256 - 1, {"from": screamsh})
@@ -208,7 +312,7 @@ def test_basic_swaps(
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
     print("✅  Swapped back from BMX to USDC")
-    chain.undo()
+    chain.revert()
 
     # swap to wBLT
     weth_to_swap = weth.balanceOf(screamsh)
@@ -223,7 +327,7 @@ def test_basic_swaps(
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
     print("✅  Swapped from WETH to wBLT")
-    chain.undo()
+    chain.revert()
 
     # swap wBLT to WETH
     wblt_to_swap = w_blt.balanceOf(screamsh)
@@ -239,6 +343,7 @@ def test_basic_swaps(
     assert usdc.balanceOf(router) == 0
     assert w_blt.balanceOf(router) == 0
     print("✅  Swapped from wBLT back to WETH\n")
+    chain.revert()
 
 
 def test_eth_swaps(

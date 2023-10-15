@@ -125,13 +125,15 @@ contract wBLTRouter is Ownable2Step {
                 if (_isBLTToken(_routes[i].to)) {
                     amounts[i + 1] = getRedeemAmountWrappedBLT(
                         _routes[i].to,
-                        amounts[i]
+                        amounts[i],
+                        false
                     );
                     continue;
                 }
             } else if (_routes[i].to == address(wBLT)) {
                 // check to make sure it's one of the tokens in BLT
                 if (_isBLTToken(_routes[i].from)) {
+                    // make sure to underestimate the amount out here
                     amounts[i + 1] = getMintAmountWrappedBLT(
                         _routes[i].from,
                         amounts[i]
@@ -842,15 +844,18 @@ contract wBLTRouter is Ownable2Step {
     /**
      * @notice
      *  Check how much underlying we get from redeeming a given amount of wBLT.
-     * @dev Since this uses maxPrice, we likely underestimate underlying received. This is
-     *  important so that we don't ever revert in a swap due to overestimation.
+     * @dev By default we round down and use getMaxPrice to underestimate underlying
+     *  received. This is important so that we don't ever revert in a swap due to
+     *  overestimation, as getAmountsOut calls this function.
      * @param _tokenOut The token to withdraw from wBLT.
      * @param _amount The amount of wBLT to burn.
+     * @param _roundUp Whether we round up or not.
      * @return underlyingReceived Amount of underlying token received.
      */
     function getRedeemAmountWrappedBLT(
         address _tokenOut,
-        uint256 _amount
+        uint256 _amount,
+        bool _roundUp
     ) public view returns (uint256 underlyingReceived) {
         require(_amount > 0, "invalid _amount");
 
@@ -858,23 +863,45 @@ contract wBLTRouter is Ownable2Step {
         _amount = shareValueHelper.sharesToAmount(
             address(wBLT),
             _amount,
-            false
+            _roundUp
         );
 
         // convert our BLT to bUSD (USDG)
         (uint256 aumInUsdg, uint256 bltSupply) = _getBltInfo(false);
-        uint256 usdgAmount = (_amount * aumInUsdg) / bltSupply;
+        uint256 usdgAmount;
 
-        // convert USDG to _tokenOut amounts, adjust for decimals
-        uint256 price = morphexVault.getMaxPrice(_tokenOut);
+        // round up if needed
+        if (_roundUp) {
+            usdgAmount = Math.ceilDiv((_amount * aumInUsdg), bltSupply);
+        } else {
+            usdgAmount = (_amount * aumInUsdg) / bltSupply;
+        }
+
+        // use min or max price depending on how we want to estimate
+        uint256 price;
+        if (_roundUp) {
+            price = morphexVault.getMinPrice(_tokenOut);
+        } else {
+            price = morphexVault.getMaxPrice(_tokenOut);
+        }
+
+        // convert USDG to _tokenOut amounts. no need to round this one since we adjust
+        //  decimals and compensate below
+
         uint256 redeemAmount = (usdgAmount * PRICE_PRECISION) / price;
+
         redeemAmount = morphexVault.adjustForDecimals(
             redeemAmount,
             morphexVault.usdg(),
             _tokenOut
         );
 
-        // adjust for fees
+        // add one wei to compensate for truncating when adjusting decimals
+        if (_roundUp) {
+            redeemAmount += 1;
+        }
+
+        // calculate our fees
         uint256 feeBasisPoints = vaultUtils.getSellUsdgFeeBasisPoints(
             _tokenOut,
             usdgAmount
@@ -882,15 +909,24 @@ contract wBLTRouter is Ownable2Step {
 
         // save some gas
         uint256 _divisor = BASIS_POINTS_DIVISOR;
-        underlyingReceived = ((redeemAmount * (_divisor - feeBasisPoints)) /
-            _divisor);
+
+        // adjust for fees, round up if needed
+        if (_roundUp) {
+            underlyingReceived = Math.ceilDiv(
+                (redeemAmount * (_divisor - feeBasisPoints)),
+                _divisor
+            );
+        } else {
+            underlyingReceived = ((redeemAmount * (_divisor - feeBasisPoints)) /
+                _divisor);
+        }
     }
 
     /**
      * @notice
      *  Check how much wBLT we need to redeem for a given amount of underlying.
-     * @dev Since this uses maxPrice, we likely overestimate wBLT
-     *  needed. To be cautious of rounding down, use ceiling division.
+     * @dev Here we do everything we can, including adding an additional Wei of Defeat, to
+     *  ensure that our estimated wBLT amount always provides enough underlying.
      * @param _underlyingToken The token to withdraw from wBLT.
      * @param _amount The amount of underlying we need.
      * @return wBLTAmount Amount of wBLT needed.
@@ -901,6 +937,13 @@ contract wBLTRouter is Ownable2Step {
     ) external view returns (uint256 wBLTAmount) {
         require(_amount > 0, "invalid _amount");
 
+        // add an additional wei to our input amount because of persistent rounding
+        //  issues, AKA the Wei of Defeat
+        _amount += 1;
+
+        // get our info for BLT
+        (uint256 aumInUsdg, uint256 bltSupply) = _getBltInfo(false);
+
         // convert our underlying amount to USDG
         uint256 underlyingPrice = morphexVault.getMaxPrice(_underlyingToken);
         uint256 usdgNeeded = Math.ceilDiv(
@@ -908,9 +951,9 @@ contract wBLTRouter is Ownable2Step {
             PRICE_PRECISION
         );
 
-        // convert USDG needed to BLT
-        (uint256 aumInUsdg, uint256 bltSupply) = _getBltInfo(false);
-        uint256 bltAmount = Math.ceilDiv((usdgNeeded * bltSupply), aumInUsdg);
+        // convert USDG needed to BLT. no need for rounding here since we will truncate
+        //  in the next step anyway
+        uint256 bltAmount = (usdgNeeded * bltSupply) / aumInUsdg;
 
         bltAmount = morphexVault.adjustForDecimals(
             bltAmount,
@@ -924,11 +967,13 @@ contract wBLTRouter is Ownable2Step {
         // save some gas
         uint256 _divisor = BASIS_POINTS_DIVISOR;
 
-        // adjust for fees
+        // check current fees
         uint256 feeBasisPoints = vaultUtils.getSellUsdgFeeBasisPoints(
             _underlyingToken,
             usdgNeeded
         );
+
+        // adjust for fees
         bltAmount = Math.ceilDiv(
             (bltAmount * _divisor),
             (_divisor - feeBasisPoints)
@@ -1093,7 +1138,8 @@ contract wBLTRouter is Ownable2Step {
         (uint256 reserveA, uint256 reserveB) = (0, 0);
         uint256 _totalSupply = 0;
 
-        // convert our _amountUnderlyingDesired to amountWrappedBLTDesired
+        // convert our _amountUnderlyingDesired to amountWrappedBLTDesired. make sure to
+        //  underestimate the amount out here so no risk of reverting
         uint256 amountWrappedBLTDesired = getMintAmountWrappedBLT(
             _underlyingToken,
             _amountUnderlyingDesired
@@ -1201,7 +1247,8 @@ contract wBLTRouter is Ownable2Step {
         // simulate zapping out of wBLT to the selected underlying
         amountUnderlying = getRedeemAmountWrappedBLT(
             _underlyingToken,
-            amountWrappedBLT
+            amountWrappedBLT,
+            false
         );
     }
 

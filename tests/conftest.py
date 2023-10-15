@@ -300,7 +300,7 @@ elif chain_used == 250:  # fantom
 
 elif chain_used == 8453:  # base
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def gov():  # BMX multisig 0xE02Fb5C70aF32F80Aa7F9E8775FE7F12550348ec
         yield accounts.at("0xE02Fb5C70aF32F80Aa7F9E8775FE7F12550348ec", force=True)
 
@@ -474,6 +474,30 @@ def receive_underlying(request):
     yield request.param
 
 
+@pytest.fixture(
+    params=[
+        True,
+        False,
+    ],
+    ids=["round_up", "round_down"],
+    scope="function",
+)
+def round_up(request):
+    yield request.param
+
+
+@pytest.fixture(
+    params=[
+        True,
+        False,
+    ],
+    ids=["yes_test_swap", "no_test_swap"],
+    scope="function",
+)
+def test_swap(request):
+    yield request.param
+
+
 if chain_used == 8453:
     # use these for our BLT router testing
     @pytest.fixture(scope="function")
@@ -482,48 +506,52 @@ if chain_used == 8453:
         # router = Contract("0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5")  # v22, testing
         yield router
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def screamsh():
         yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def w_blt():
         yield Contract("0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A")
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def gauge():
         yield Contract("0x1F7B5E65c09dF12742255BB8Fe26958f4B52F9bb")
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def weth():
         yield Contract("0x4200000000000000000000000000000000000006")
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def bmx():
         yield Contract("0x548f93779fBC992010C07467cBaf329DD5F059B7")
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def factory():
         yield "0xe21Aac7F113Bd5DC2389e4d8a8db854a87fD6951"
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def obmx():
         yield Contract("0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713")
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def usdc():
         yield Contract("0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA")
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def bvm():
         yield interface.IERC20("0xd386a121991E51Eab5e3433Bf5B1cF4C8884b47a")
 
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def obvm():
         yield Contract("0x762eb51D2e779EeEc9B239FFB0B2eC8262848f3E")
 
+    @pytest.fixture(scope="function")
+    def weth_whale():
+        yield accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
+
     # route to swap from wBLT to WETH
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def wblt_route(w_blt, weth):
         wblt_route = [
             (w_blt.address, weth.address, False),
@@ -531,7 +559,7 @@ if chain_used == 8453:
         yield wblt_route
 
     # route to swap from WETH to wBLT
-    @pytest.fixture(scope="session")
+    @pytest.fixture(scope="function")
     def weth_route(w_blt, weth):
         weth_route = [
             (weth.address, w_blt.address, False),
