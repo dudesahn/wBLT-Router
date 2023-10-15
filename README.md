@@ -1,26 +1,79 @@
-# README
+# wBLT Router
 
-## CurveGlobal.sol
+- This contract simplifies the process of redeeming oTokens (such as oBMX, oFVM) paired with other vanilla tokens
+  (WETH, WFTM) for the vanilla token, underlying, or for the LP of underlying asset.
+- Typically, the `paymentToken` is needed up front for redemption. This contract uses flash loans to eliminate that
+  requirement.
+- View functions `quoteExerciseProfit`, `quoteExerciseToUnderlying`, and `quoteExerciseLp` are provided to be useful
+  both internally and externally for estimations of output and optimal inputs.
 
-https://github.com/flashfish0x/StrategyConvexTemplate/blob/e992dc01c5f31d6b5a7392b6ed731f1b8d594168/contracts/CurveGlobal.sol
+## Testing
 
-This is our factory for creating yVaults for Curve pool tokens, with one strategy to farm via Convex.
-There are lots of setters that we can use to make changes to future vaults/strategies created by the factory.
-The createNewVaultsAndStrategies function allows any user to create a yVault for a Curve LP token by entering a gauge (provided one doesn't already exist).
-The gauge is used to identify the lpToken and the Convex pid.
-Then we create the new automated vault and the Convex strategy.
-Finally we add the strategy to the vault.
+To run the test suite:
 
-## StrategyConvexFactoryClonable.sol
+```
+brownie test -s
+```
 
-https://github.com/flashfish0x/StrategyConvexTemplate/blob/e992dc01c5f31d6b5a7392b6ed731f1b8d594168/contracts/StrategyConvexFactoryClonable.sol
+To generate a coverage report:
 
-This is our Convex strategy that is created by CurveGlobal and automatically added to each vault it creates.
-It's a simple auto-compounder for Convex.
-It deposits Curve pool tokens into Convex and then periodically claims CRV and CVX rewards, swaps them for the vault's Curve pool tokens, and deposits those back into Convex to earn more rewards.
+```
+brownie test --coverage
+```
 
-## KeeperWrapper.sol
+Then to visualize:
 
-https://github.com/flashfish0x/StrategyConvexTemplate/blob/e992dc01c5f31d6b5a7392b6ed731f1b8d594168/contracts/KeeperWrapper.sol
+```
+brownie gui
+```
 
-If set as the keeper of the strategy, this contract will make keeper functions (like harvest) public.
+Note that to properly test both branches of our WETH balance checks in `exercise()` and `exerciseToLp()`, the tests note
+that it is easiest to adjust the WETH threshold values on the specified lines. With these adjustments, all functions,
+with the exception of `_safeTransfer`, `_safeTransferFrom`, and `getAmountIn` are 100% covered.
+
+### Test Results
+
+#### Default settings
+
+```
+  contract: SimpleExerciseHelperBaseWETH - 87.7%
+    Ownable._checkOwner - 100.0%
+    SimpleExerciseHelperBaseWETH._checkAllowance - 100.0%
+    SimpleExerciseHelperBaseWETH._exerciseAndSwap - 100.0%
+    SimpleExerciseHelperBaseWETH.getAmountsIn - 100.0%
+    SimpleExerciseHelperBaseWETH.quoteExerciseLp - 100.0%
+    SimpleExerciseHelperBaseWETH.quoteExerciseProfit - 100.0%
+    SimpleExerciseHelperBaseWETH.quoteExerciseToUnderlying - 100.0%
+    SimpleExerciseHelperBaseWETH.receiveFlashLoan - 100.0%
+    SimpleExerciseHelperBaseWETH.setFee - 100.0%
+    SimpleExerciseHelperBaseWETH.exerciseToLp - 75.7%
+    SimpleExerciseHelperBaseWETH._safeTransfer - 75.0%
+    SimpleExerciseHelperBaseWETH._safeTransferFrom - 75.0%
+    SimpleExerciseHelperBaseWETH.exercise - 75.0%
+    SimpleExerciseHelperBaseWETH._getAmountIn - 66.7%
+```
+
+#### Using alternate values suggested in `test_exercise_helper`
+
+Hits the opposite sides of the `if` statements for 100% total coverage.
+
+```
+  contract: SimpleExerciseHelperBaseWETH - 88.4%
+    Ownable._checkOwner - 100.0%
+    SimpleExerciseHelperBaseWETH._checkAllowance - 100.0%
+    SimpleExerciseHelperBaseWETH._exerciseAndSwap - 100.0%
+    SimpleExerciseHelperBaseWETH.getAmountsIn - 100.0%
+    SimpleExerciseHelperBaseWETH.quoteExerciseLp - 100.0%
+    SimpleExerciseHelperBaseWETH.quoteExerciseProfit - 100.0%
+    SimpleExerciseHelperBaseWETH.quoteExerciseToUnderlying - 100.0%
+    SimpleExerciseHelperBaseWETH.receiveFlashLoan - 100.0%
+    SimpleExerciseHelperBaseWETH.setFee - 100.0%
+    SimpleExerciseHelperBaseWETH.exercise - 93.8%
+    SimpleExerciseHelperBaseWETH._safeTransfer - 75.0%
+    SimpleExerciseHelperBaseWETH._safeTransferFrom - 75.0%
+    SimpleExerciseHelperBaseWETH._getAmountIn - 66.7%
+    SimpleExerciseHelperBaseWETH.exerciseToLp - 64.6%
+
+```
+# Share Value Helper
+- This contract is used to convert shares to underlying amounts and vice versa, with minimal precision loss.

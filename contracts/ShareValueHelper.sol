@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0
-pragma solidity 0.8.6;
+pragma solidity 0.8.19;
 
-import "@openzeppelin/contracts/utils/math/Math.sol";
+import {Math} from "@openzeppelin/contracts@4.9.3/utils/math/Math.sol";
 
 interface IVault {
     function totalSupply() external view returns (uint);
