@@ -14,6 +14,7 @@ def test_basic_swaps(
     round_up,
     weth_whale,
     test_swap,
+    tests_using_anvil,
 ):
     # clear out any balance
     reward_router = Contract("0x49a97680938b4f1f73816d1b70c3ab801fad124b")
@@ -68,7 +69,7 @@ def test_basic_swaps(
 
     # do a bit of fuzzing here
     x = 0
-    final_pass = 137  # just set this == 1 to only do it once, ran at 137 during testing
+    final_pass = 1  # just set this == 1 to only do it once, ran at 137 during testing
     while x < final_pass:
         weth_to_receive += x
 
@@ -285,7 +286,10 @@ def test_basic_swaps(
     swap = router.swapExactTokensForTokens(
         weth_to_swap, 0, weth_to_bmx, screamsh, 2**256 - 1, {"from": screamsh}
     )
-    print("💯 Actual amounts out", swap.return_value)
+
+    # anvil doesn't pull data back from write functions very well
+    if not tests_using_anvil:
+        print("💯 Actual amounts out", swap.return_value)
 
     assert bmx.balanceOf(screamsh) > before
     assert bmx.balanceOf(router) == 0
@@ -469,10 +473,11 @@ def test_long_route_swap(
     factory,
     usdc,
     tests_using_tenderly,
+    tests_using_anvil,
 ):
     # the second long swap back reverts w/ "K" error if using ganache 😭
-    if not tests_using_tenderly:
-        print("\n🚨🚨 Need to use Tenderly 🥩 to test the long swap 🚨🚨\n")
+    if not tests_using_tenderly and not tests_using_anvil:
+        print("\n🚨🚨 Need to use Anvil 🔨 or Tenderly 🥩 to test the long swap 🚨🚨\n")
         return
 
     # whales deposit USDC and WETH to give us some flexibility, USDC-WETH pool on aerodrome
@@ -556,6 +561,7 @@ def test_add_liq(
     weth,
     factory,
     usdc,
+    tests_using_anvil,
 ):
 
     # add liquidity
@@ -596,7 +602,11 @@ def test_add_liq(
         screamsh.address,
         {"from": screamsh},
     )
-    print("💯 Real:", real.return_value.dict())
+
+    # anvil doesn't pull data back from write functions very well
+    if not tests_using_anvil:
+        print("💯 Real:", real.return_value.dict())
+
     assert bmx.balanceOf(router) == 0
     assert weth.balanceOf(router) == 0
     assert usdc.balanceOf(router) == 0
@@ -671,6 +681,7 @@ def test_remove_liq(
     weth,
     factory,
     usdc,
+    tests_using_anvil,
 ):
     # whales deposit USDC and WETH to give us some flexibility, USDC-WETH pool on aerodrome
     token_whale = accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
@@ -757,7 +768,10 @@ def test_remove_liq(
     real = router.removeLiquidity(
         weth, bmx, lp.balanceOf(screamsh), 0, 0, screamsh.address, {"from": screamsh}
     )
-    print("💯 Real amounts:", real.return_value.dict())
+
+    # anvil doesn't pull data back from write functions very well
+    if not tests_using_anvil:
+        print("💯 Real amounts:", real.return_value.dict())
 
     assert before_bmx < bmx.balanceOf(screamsh)
     assert before_weth < weth.balanceOf(screamsh)
