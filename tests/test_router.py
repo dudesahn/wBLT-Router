@@ -84,13 +84,10 @@ def test_basic_swaps(
                 2**256 - 1,
                 {"from": screamsh},
             )
-
         to_redeem = router.quoteRedeemAmountBLT(weth, weth_to_receive)
 
         # how much weth do we get for redeeming that amount of wBLT (round up)
         weth_out = router.getRedeemAmountWrappedBLT(weth, to_redeem, round_up)
-        error = abs(weth_out - weth_to_receive) / weth_to_receive * 100
-        to_redeem_two = router.quoteRedeemAmountBLT(weth, weth_out)
 
         # depending on whether we round up or down getRedeemAmountWrappedBLT, we expect different answers
         if round_up:
@@ -109,11 +106,10 @@ def test_basic_swaps(
         )
         received_swap = weth.balanceOf(screamsh) + to_swap_in - before
 
-        # do this instead of using the internal getAmountsOut check since that naturally underestimates output
-        assert received_swap >= weth_to_receive
-
         # only print our first and our last time
         if x == 0 or x == final_pass - 1:
+            error = abs(weth_out - weth_to_receive) / weth_to_receive * 100
+            to_redeem_two = router.quoteRedeemAmountBLT(weth, weth_out)
             print("🏦 WETH we want out from wBLT:", weth_to_receive)
             print(
                 "\n🥪 We need to redeem this much wBLT to receive our random ETH amount",
@@ -135,7 +131,9 @@ def test_basic_swaps(
                 weth_to_receive,
                 "⬅️ Target 🎯\n",
                 weth_out,
-                "⬅️ Estimate 🧮",
+                "⬅️ Estimate 🧮\n",
+                received_swap,
+                "⬅️ WETH received 🖼",
             )
             diff = weth_out - weth_to_receive
             if diff != 1:
@@ -143,7 +141,7 @@ def test_basic_swaps(
                     print("✅ ", diff)
                 else:
                     print(
-                        "🚨🚨 Off by:",
+                        "🚨🚨 Target & estimate off by:",
                         diff,
                         "🚨🚨",
                     )
@@ -164,7 +162,9 @@ def test_basic_swaps(
                     weth_to_receive,
                     "⬅️ Target 🎯\n",
                     weth_out,
-                    "⬅️ Estimate 🧮",
+                    "⬅️ Estimate 🧮\n",
+                    received_swap,
+                    "⬅️ WETH received 🖼",
                 )
                 print("💵 To redeem:", to_redeem / 1e18)
                 diff = weth_out - weth_to_receive
@@ -173,7 +173,7 @@ def test_basic_swaps(
                         print("✅ ", diff)
                     else:
                         print(
-                            "🚨🚨 Off by:",
+                            "🚨🚨 Target & estimate off by:",
                             diff,
                             "🚨🚨",
                         )
@@ -185,7 +185,9 @@ def test_basic_swaps(
                     weth_to_receive,
                     "⬅️ Target 🎯\n",
                     weth_out,
-                    "⬅️ Estimate 🧮",
+                    "⬅️ Estimate 🧮\n",
+                    received_swap,
+                    "⬅️ WETH received 🖼",
                 )
                 print("💵 To redeem:", to_redeem / 1e18)
                 diff = weth_to_receive - weth_out
@@ -194,7 +196,7 @@ def test_basic_swaps(
                         print("✅ ", diff)
                     else:
                         print(
-                            "🚨🚨 Off by:",
+                            "🚨🚨 Target & estimate off by:",
                             diff,
                             "🚨🚨",
                         )
@@ -210,6 +212,10 @@ def test_basic_swaps(
                 "test_swap:",
                 test_swap,
             )
+
+        # do this instead of using the internal getAmountsOut check since that naturally underestimates output
+        # should've been doing this after**** the print step the whole time 🙈
+        assert received_swap >= weth_to_receive
 
         # we should ALWAYS receive greater than or equal WETH than estimated, regardless of round_up
         print(

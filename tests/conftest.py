@@ -25,6 +25,7 @@ def tests_using_tenderly():
 
 # useful because it doesn't crash when sometimes ganache does, "works" in coverage testing but then doesn't actually write any data lol
 # if we're using anvil, make sure to use the correct network (base-anvil-fork vs base-dev-fork)
+# tbh anvil seems slower than ganache, so not worth it here w/ fuzzing
 use_anvil = True
 
 
@@ -77,7 +78,7 @@ def tenderly_fork(web3, chain):
 ################################################ UPDATE THINGS BELOW HERE ################################################
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def gov():  # BMX multisig 0xE02Fb5C70aF32F80Aa7F9E8775FE7F12550348ec
     yield accounts.at("0xE02Fb5C70aF32F80Aa7F9E8775FE7F12550348ec", force=True)
 
@@ -126,46 +127,46 @@ def router(wBLTRouter, screamsh):
     yield router
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def screamsh():
     yield accounts.at("0x89955a99552F11487FFdc054a6875DF9446B2902", force=True)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def w_blt():
     yield Contract("0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def gauge():
     yield Contract("0x1F7B5E65c09dF12742255BB8Fe26958f4B52F9bb")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def weth():
     yield Contract("0x4200000000000000000000000000000000000006")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def bmx():
     yield Contract("0x548f93779fBC992010C07467cBaf329DD5F059B7")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def factory():
     yield "0xe21Aac7F113Bd5DC2389e4d8a8db854a87fD6951"
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def obmx():
     yield Contract("0x3Ff7AB26F2dfD482C40bDaDfC0e88D01BFf79713")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def usdc():
     yield Contract("0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def weth_whale():
     yield accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
