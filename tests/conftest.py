@@ -170,3 +170,13 @@ def usdc():
 @pytest.fixture(scope="session")
 def weth_whale():
     yield accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
+
+
+@pytest.fixture(scope="session")
+def wblt_whale():
+    yield accounts.at("0x0000000000A6F0986c92cf1EC4d2e77aFBE1466D", force=True)
+
+
+@pytest.fixture(scope="session")
+def bmx_whale():
+    yield accounts.at("0x37fda9Da0f51dF81a5B316C9Ab8410f9F8175F5b", force=True)

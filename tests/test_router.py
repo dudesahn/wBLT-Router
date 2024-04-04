@@ -15,6 +15,8 @@ def test_basic_swaps(
     weth_whale,
     test_swap,
     tests_using_anvil,
+    wblt_whale,
+    bmx_whale,
 ):
     # clear out any balance
     reward_router = Contract("0x49a97680938b4f1f73816d1b70c3ab801fad124b")
@@ -60,9 +62,14 @@ def test_basic_swaps(
     weth_to_wblt = [
         (weth.address, w_blt.address, False),
     ]
+
+    # load up our wallet with tokens
     weth.transfer(screamsh, 200e18, {"from": weth_whale})
     before = weth.balanceOf(screamsh)
     to_swap_in = 0
+    w_blt.transfer(screamsh, 200e18, {"from": wblt_whale})
+    usdc.transfer(screamsh, 200e6, {"from": wblt_whale})
+    bmx.transfer(screamsh, 200e18, {"from": bmx_whale})
 
     # take our snapshot
     chain.snapshot()
@@ -80,7 +87,7 @@ def test_basic_swaps(
                 to_swap_in,
                 0,
                 weth_to_wblt,
-                weth_whale,
+                screamsh,
                 2**256 - 1,
                 {"from": screamsh},
             )
@@ -234,7 +241,7 @@ def test_basic_swaps(
     weth_to_wblt = [
         (weth.address, w_blt.address, False),
     ]
-    weth_to_mint = weth.balanceOf(screamsh)
+    weth_to_mint = weth.balanceOf(screamsh) / 100
     before = w_blt.balanceOf(screamsh)
     router.swapExactTokensForTokens(
         weth_to_mint, 0, weth_to_wblt, screamsh, 2**256 - 1, {"from": screamsh}
@@ -278,7 +285,7 @@ def test_basic_swaps(
         "{:,.18f}".format(estimated_shares / 1e18),
     )
 
-    weth_to_swap = weth.balanceOf(screamsh)
+    weth_to_swap = weth.balanceOf(screamsh) / 100
     weth_to_bmx = [
         (weth.address, w_blt.address, False),
         (w_blt.address, bmx.address, False),
@@ -311,7 +318,7 @@ def test_basic_swaps(
         (bmx.address, w_blt.address, False),
         (w_blt.address, usdc.address, False),
     ]
-    bmx_to_swap = bmx.balanceOf(screamsh)
+    bmx_to_swap = bmx.balanceOf(screamsh) / 100
     before = usdc.balanceOf(screamsh)
     router.swapExactTokensForTokens(
         bmx_to_swap, 0, bmx_to_usdc, screamsh.address, 2**256 - 1, {"from": screamsh}
@@ -325,7 +332,7 @@ def test_basic_swaps(
     chain.revert()
 
     # swap to wBLT
-    weth_to_swap = weth.balanceOf(screamsh)
+    weth_to_swap = weth.balanceOf(screamsh) / 100
     weth_to_wblt = [(weth.address, w_blt.address, False)]
     before = w_blt.balanceOf(screamsh)
     router.swapExactTokensForTokens(
@@ -340,7 +347,7 @@ def test_basic_swaps(
     chain.revert()
 
     # swap wBLT to WETH
-    wblt_to_swap = w_blt.balanceOf(screamsh)
+    wblt_to_swap = w_blt.balanceOf(screamsh) / 100
     w_blt.approve(router, 2**256 - 1, {"from": screamsh})
     back_to_weth = [(w_blt.address, weth.address, False)]
     before = weth.balanceOf(screamsh)
@@ -568,10 +575,16 @@ def test_add_liq(
     factory,
     usdc,
     tests_using_anvil,
+    weth_whale,
 ):
+
+    # load up our wallet with tokens
+    print("🤑 Transfer in all the WETH a bot could ever want")
+    weth.transfer(screamsh, 200e18, {"from": weth_whale})
 
     # add liquidity
     # swap for some BMX
+    print("Swap WETH for BMX")
     weth.approve(router, 2**256 - 1, {"from": screamsh})
     bmx.approve(router, 2**256 - 1, {"from": screamsh})
     weth_to_swap = 1e15
@@ -586,6 +599,7 @@ def test_add_liq(
     assert bmx.balanceOf(screamsh) > before
 
     # calculate how much liquidity we need to add
+    print("Quote adding liq")
     quote = router.quoteAddLiquidityUnderlying(
         weth, bmx, 1e15, 1e18, {"from": screamsh}
     )
@@ -597,6 +611,7 @@ def test_add_liq(
 
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
+    print("Add the liq")
     real = router.addLiquidity(
         weth,
         underlying_to_add,
@@ -630,7 +645,13 @@ def test_add_liq_ether(
     weth,
     factory,
     usdc,
+    weth_whale,
 ):
+
+    # load up our wallet with tokens
+    print("🤑 Transfer in all the WETH a bot could ever want")
+    weth.transfer(screamsh, 200e18, {"from": weth_whale})
+
     # ETH whale sends some to screamsh
     eth_whale = accounts.at("0x224D8Fd7aB6AD4c6eb4611Ce56EF35Dec2277F03", force=True)
     eth_whale.transfer(screamsh, 5e18)
@@ -638,6 +659,7 @@ def test_add_liq_ether(
 
     # add liquidity
     # swap for some BMX
+    print("Swap WETH for BMX")
     weth.approve(router, 2**256 - 1, {"from": screamsh})
     bmx.approve(router, 2**256 - 1, {"from": screamsh})
     weth_to_swap = 1e15
@@ -652,6 +674,7 @@ def test_add_liq_ether(
     assert bmx.balanceOf(screamsh) > before
 
     # calculate how much liquidity we need to add
+    print("Quote adding liq")
     quote = router.quoteAddLiquidityUnderlying(weth, bmx, 1e15, 1e18)
     underlying_to_add = quote[0]
     wblt_expected = quote[1]
@@ -659,6 +682,7 @@ def test_add_liq_ether(
 
     lp = Contract("0xd272920b2b4ebee362a887451edbd6d68a76e507")
     assert lp.balanceOf(screamsh) == 0
+    print("Add the liq")
 
     router.addLiquidityETH(
         underlying_to_add,
