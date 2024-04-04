@@ -121,8 +121,8 @@ def test_swap(request):
 
 # use these for our BLT router testing
 @pytest.fixture(scope="function")
-def router(wBLTRouter, screamsh):
-    router = screamsh.deploy(wBLTRouter)
+def router(wBLTRouterV2, screamsh):
+    router = screamsh.deploy(wBLTRouterV2)
     # router = Contract("0x70FfF9B84788566065f1dFD8968Fb72F798b9aE5")  # v22, testing
     yield router
 
@@ -149,7 +149,7 @@ def weth():
 
 @pytest.fixture(scope="session")
 def bmx():
-    yield Contract("0x0d97F261b1e88845184f678e2d1e7a98D9FD38dE") 
+    yield Contract("0x0d97F261b1e88845184f678e2d1e7a98D9FD38dE")
     # BMX: 0x548f93779fBC992010C07467cBaf329DD5F059B7, TYBG: 0x0d97F261b1e88845184f678e2d1e7a98D9FD38dE
 
 
@@ -171,3 +171,14 @@ def usdc():
 @pytest.fixture(scope="session")
 def weth_whale():
     yield accounts.at("0xB4885Bc63399BF5518b994c1d0C153334Ee579D0", force=True)
+
+
+@pytest.fixture(scope="session")
+def wblt_whale():
+    yield accounts.at("0x0000000000A6F0986c92cf1EC4d2e77aFBE1466D", force=True)
+
+
+@pytest.fixture(scope="session")
+def bmx_whale():
+    yield accounts.at("0x000000000000000000000000000000000000dEaD", force=True)
+    # BMX:0x37fda9Da0f51dF81a5B316C9Ab8410f9F8175F5b TYBG: 0x000000000000000000000000000000000000dEaD

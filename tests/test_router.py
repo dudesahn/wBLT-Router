@@ -18,6 +18,10 @@ def test_basic_swaps(
     wblt_whale,
     bmx_whale,
 ):
+    # check what our pool is
+    pool = router.poolFor(bmx, w_blt, False)
+    print("🏊 This is our BMX-wBLT Pool:", pool)
+
     # clear out any balance
     reward_router = Contract("0x49a97680938b4f1f73816d1b70c3ab801fad124b")
     glp_manager = Contract("0x9fAc7b75f367d5B35a6D6D0a09572eFcC3D406C5")
@@ -69,7 +73,7 @@ def test_basic_swaps(
     to_swap_in = 0
     w_blt.transfer(screamsh, 200e18, {"from": wblt_whale})
     usdc.transfer(screamsh, 200e6, {"from": wblt_whale})
-    bmx.transfer(screamsh, 200e18, {"from": bmx_whale})
+    bmx.transfer(screamsh, 2_000_000e18, {"from": bmx_whale})
 
     # take our snapshot
     chain.snapshot()
@@ -476,7 +480,7 @@ def test_eth_swaps(
     print("✅  Swapped back from BMX to ether\n")
 
 
-# note that this transaction will revert with ganache sometimes
+# note that this transaction will revert with ganache sometimes (and will currently revert on aerodrome since there's no wBLT-USDC liq)
 def test_long_route_swap(
     bmx,
     screamsh,

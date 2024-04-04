@@ -8,12 +8,12 @@ import {IFactoryRegistry, IPoolFactory, IPool} from "./interfaces/AerodromeInter
 import {IERC20, IWETH, IBMX, VaultAPI, IShareHelper} from "./interfaces/BMXInterfaces.sol";
 
 /**
- * @title wBLT Router
+ * @title wBLT Router V2
  * @notice This contract simplifies conversions between wBLT, BMX, and other assets
- *  using wBLT's underlying tokens as virtual pools with wBLT.
+ *  using wBLT's underlying tokens as virtual pools with wBLT. V2 built on top of Aerodrome.
  */
 
-contract wBLTRouter is Ownable2Step {
+contract wBLTRouterV2 is Ownable2Step {
     struct Route {
         address from;
         address to;
@@ -23,10 +23,6 @@ contract wBLTRouter is Ownable2Step {
     /// @notice Aerodrome V2 (vAMM/sAMM) pool factory
     address public constant defaultFactory =
         0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
-
-    /// @notice Aerodrome factory registry
-    address public constant factoryRegistry =
-        0x5C3F18F06CC09CA1910767A34a20F771039E37C0;
 
     IWETH public constant weth =
         IWETH(0x4200000000000000000000000000000000000006);
@@ -391,13 +387,6 @@ contract wBLTRouter is Ownable2Step {
         }
     }
 
-    // helper to approve new oTokens to spend wBLT from this router
-    function _checkAllowance(address _token) internal {
-        if (wBLT.allowance(address(this), _token) == 0) {
-            wBLT.approve(_token, type(uint256).max);
-        }
-    }
-
     /**
      * @notice Check how much wBLT we get from a given amount of underlying.
      * @dev Since this uses minPrice, we likely underestimate wBLT received. By using normal solidity division, we are
@@ -705,7 +694,7 @@ contract wBLTRouter is Ownable2Step {
         tokens = wBLT.deposit(newMlp, address(this));
     }
 
-    /* ========== UNMODIFIED FUNCTIONS ========== */
+    /* ========== AERODROME-SPECIFIC FUNCTIONS ========== */
 
     function poolFor(
         address _tokenA,
@@ -720,6 +709,8 @@ contract wBLTRouter is Ownable2Step {
             defaultFactory
         );
     }
+
+    /* ========== UNMODIFIED V1 FUNCTIONS ========== */
 
     function sortTokens(
         address _tokenA,
