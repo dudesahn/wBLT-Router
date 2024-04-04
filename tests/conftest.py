@@ -149,7 +149,8 @@ def weth():
 
 @pytest.fixture(scope="session")
 def bmx():
-    yield Contract("0x548f93779fBC992010C07467cBaf329DD5F059B7")
+    yield Contract("0x0d97F261b1e88845184f678e2d1e7a98D9FD38dE") 
+    # BMX: 0x548f93779fBC992010C07467cBaf329DD5F059B7, TYBG: 0x0d97F261b1e88845184f678e2d1e7a98D9FD38dE
 
 
 @pytest.fixture(scope="session")

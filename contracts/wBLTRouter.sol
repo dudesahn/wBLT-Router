@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
-import "./Interfaces.sol";
 import {Math} from "@openzeppelin/contracts@4.9.3/utils/math/Math.sol";
 import {Ownable2Step} from "@openzeppelin/contracts@4.9.3/access/Ownable2Step.sol";
+import {Clones} from "@openzeppelin/contracts@4.9.3/proxy/Clones.sol";
+import {IFactoryRegistry, IPoolFactory, IPool} from "./interfaces/AerodromeInterfaces.sol";
+import {IERC20, IWETH, IBMX, VaultAPI, IShareHelper} from "./interfaces/BMXInterfaces.sol";
 
 /**
  * @title wBLT Router
  * @notice This contract simplifies conversions between wBLT, BMX, and other assets
- *  using wBLT's underlying tokens as virtual pairs with wBLT.
+ *  using wBLT's underlying tokens as virtual pools with wBLT.
  */
 
 contract wBLTRouter is Ownable2Step {
@@ -18,14 +20,16 @@ contract wBLTRouter is Ownable2Step {
         bool stable;
     }
 
-    /// @notice Factory address that deployed our Velodrome pool.
-    address public constant factory =
-        0xe21Aac7F113Bd5DC2389e4d8a8db854a87fD6951;
+    /// @notice Aerodrome V2 (vAMM/sAMM) pool factory
+    address public constant defaultFactory =
+        0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
+
+    /// @notice Aerodrome factory registry
+    address public constant factoryRegistry =
+        0x5C3F18F06CC09CA1910767A34a20F771039E37C0;
 
     IWETH public constant weth =
         IWETH(0x4200000000000000000000000000000000000006);
-    uint256 internal constant MINIMUM_LIQUIDITY = 10 ** 3;
-    bytes32 internal immutable pairCodeHash;
     uint256 internal immutable PRICE_PRECISION;
     uint256 internal immutable BASIS_POINTS_DIVISOR;
 
@@ -55,8 +59,6 @@ contract wBLTRouter is Ownable2Step {
         IShareHelper(0x4d2ED72285206D2b4b59CDA21ED0a979ad1F497f);
 
     constructor() {
-        pairCodeHash = IPairFactory(factory).pairCodeHash();
-
         // do approvals for wBLT
         sBLT.approve(address(wBLT), type(uint256).max);
 
@@ -103,7 +105,7 @@ contract wBLTRouter is Ownable2Step {
     }
 
     /**
-     * @notice Performs chained getAmountOut calculations on any number of pairs.
+     * @notice Performs chained getAmountOut calculations on any number of pools.
      * @dev This is mainly used when conducting swaps.
      * @param _amountIn The amount of our first token to swap.
      * @param _routes Array of structs that we use for our swap path.
@@ -140,15 +142,14 @@ contract wBLTRouter is Ownable2Step {
                 }
             }
 
-            // if it's not depositing or withdrawing from wBLT, we can treat it like
-            //  normal
-            address pair = pairFor(
+            // if it's not depositing or withdrawing from wBLT, we can treat it like normal
+            address pool = poolFor(
                 _routes[i].from,
                 _routes[i].to,
                 _routes[i].stable
             );
-            if (IPairFactory(factory).isPair(pair)) {
-                amounts[i + 1] = IPair(pair).getAmountOut(
+            if (IPoolFactory(defaultFactory).isPool(pool)) {
+                amounts[i + 1] = IPool(pool).getAmountOut(
                     amounts[i],
                     _routes[i].from
                 );
@@ -157,7 +158,7 @@ contract wBLTRouter is Ownable2Step {
     }
 
     /**
-     * @notice Swap wBLT or our paired token for ether.
+     * @notice Swap wBLT or our pooled token for ether.
      * @param _amountIn The amount of our first token to swap.
      * @param _amountOutMin Minimum amount of ether we must receive.
      * @param _routes Array of structs that we use for our swap path.
@@ -182,7 +183,7 @@ contract wBLTRouter is Ownable2Step {
             "Router: END_ROUTE_IN_ETH_BOZO"
         );
 
-        // if our first pair is mint/burn of wBLT, transfer to the router
+        // if our first pool is mint/burn of wBLT, transfer to the router
         if (
             _routes[0].from == address(wBLT) || _routes[0].to == address(wBLT)
         ) {
@@ -198,7 +199,7 @@ contract wBLTRouter is Ownable2Step {
                 _safeTransferFrom(
                     _routes[0].from,
                     msg.sender,
-                    pairFor(_routes[0].from, _routes[0].to, _routes[0].stable),
+                    poolFor(_routes[0].from, _routes[0].to, _routes[0].stable),
                     amounts[0]
                 );
             }
@@ -206,7 +207,7 @@ contract wBLTRouter is Ownable2Step {
             _safeTransferFrom(
                 _routes[0].from,
                 msg.sender,
-                pairFor(_routes[0].from, _routes[0].to, _routes[0].stable),
+                poolFor(_routes[0].from, _routes[0].to, _routes[0].stable),
                 amounts[0]
             );
         }
@@ -220,7 +221,7 @@ contract wBLTRouter is Ownable2Step {
     }
 
     /**
-     * @notice Swap ETH for tokens, with special handling for wBLT pairs.
+     * @notice Swap ETH for tokens, with special handling for wBLT pools.
      * @param _amountIn The amount of ether to swap.
      * @param _amountOutMin Minimum amount of our final token we must receive.
      * @param _routes Array of structs that we use for our swap path.
@@ -257,7 +258,7 @@ contract wBLTRouter is Ownable2Step {
     }
 
     /**
-     * @notice Swap tokens for tokens, with special handling for wBLT pairs.
+     * @notice Swap tokens for tokens, with special handling for wBLT pools.
      * @param _amountIn The amount of our first token to swap.
      * @param _amountOutMin Minimum amount of our final token we must receive.
      * @param _routes Array of structs that we use for our swap path.
@@ -278,7 +279,7 @@ contract wBLTRouter is Ownable2Step {
             "Router: INSUFFICIENT_OUTPUT_AMOUNT"
         );
 
-        // if our first pair is mint/burn of wBLT, transfer to the router
+        // if our first pool is mint/burn of wBLT, transfer to the router
         if (
             _routes[0].from == address(wBLT) || _routes[0].to == address(wBLT)
         ) {
@@ -294,7 +295,7 @@ contract wBLTRouter is Ownable2Step {
                 _safeTransferFrom(
                     _routes[0].from,
                     msg.sender,
-                    pairFor(_routes[0].from, _routes[0].to, _routes[0].stable),
+                    poolFor(_routes[0].from, _routes[0].to, _routes[0].stable),
                     amounts[0]
                 );
             }
@@ -302,7 +303,7 @@ contract wBLTRouter is Ownable2Step {
             _safeTransferFrom(
                 _routes[0].from,
                 msg.sender,
-                pairFor(_routes[0].from, _routes[0].to, _routes[0].stable),
+                poolFor(_routes[0].from, _routes[0].to, _routes[0].stable),
                 amounts[0]
             );
         }
@@ -311,7 +312,7 @@ contract wBLTRouter is Ownable2Step {
     }
 
     // **** SWAP ****
-    // requires the initial amount to have already been sent to the first pair or in this case, our underlying or wBLT
+    // requires the initial amount to have already been sent to the first pool or in this case, our underlying or wBLT
     //  to have been sent to the router
     function _swap(
         uint256[] memory _amounts,
@@ -336,7 +337,7 @@ contract wBLTRouter is Ownable2Step {
                 if (_isBLTToken(_routes[i].to)) {
                     received = _withdrawFromWrappedBLT(_routes[i].to);
                     if (i < (_routes.length - 1)) {
-                        // if we're not done, send our underlying to the next pair
+                        // if we're not done, send our underlying to the next pool
                         directSend = true;
                     } else {
                         // if this is the last token, send to our _to address
@@ -349,7 +350,7 @@ contract wBLTRouter is Ownable2Step {
                 if (_isBLTToken(_routes[i].from)) {
                     received = _depositToWrappedBLT(_routes[i].from);
                     if (i < (_routes.length - 1)) {
-                        // if we're not done, directly send our wBLT to the next pair
+                        // if we're not done, directly send our wBLT to the next pool
                         directSend = true;
                     } else {
                         // if this is the last token, send to our _to address
@@ -373,7 +374,7 @@ contract wBLTRouter is Ownable2Step {
                 to = address(this);
             } else {
                 // normal mid-route swap
-                to = pairFor(
+                to = poolFor(
                     _routes[i + 1].from,
                     _routes[i + 1].to,
                     _routes[i + 1].stable
@@ -383,343 +384,10 @@ contract wBLTRouter is Ownable2Step {
             if (directSend) {
                 _safeTransfer(_routes[i].to, to, received);
             } else {
-                IPair(
-                    pairFor(_routes[i].from, _routes[i].to, _routes[i].stable)
+                IPool(
+                    poolFor(_routes[i].from, _routes[i].to, _routes[i].stable)
                 ).swap(amount0Out, amount1Out, to, new bytes(0));
             }
-        }
-    }
-
-    /**
-     * @notice
-     *  Add liquidity for wBLT-TOKEN with an underlying token for wBLT.
-     * @dev Removed the stable and tokenA params from the standard function as they're not needed and so stack isn't too
-     *  deep.
-     * @param _underlyingToken The token to zap into wBLT for creating the LP.
-     * @param _amountToZapIn Amount of underlying token to deposit to wBLT.
-     * @param token The token to pair with wBLT for the LP.
-     * @param _amountWrappedBLTDesired The amount of wBLT we would like to deposit to the LP.
-     * @param _amountTokenDesired The amount of other token we would like to deposit to the LP.
-     * @param _amountWrappedBLTMin The minimum amount of wBLT we will accept in the LP.
-     * @param _amountTokenMin The minimum amount of other token we will accept in the LP.
-     * @param _to Address that will receive the LP token.
-     * @return amountWrappedBLT Amount of wBLT actually deposited in the LP.
-     * @return amountToken Amount of our other token actually deposited in the LP.
-     * @return liquidity Amount of LP token generated.
-     */
-    function addLiquidity(
-        address _underlyingToken,
-        uint256 _amountToZapIn,
-        address token,
-        uint256 _amountWrappedBLTDesired,
-        uint256 _amountTokenDesired,
-        uint256 _amountWrappedBLTMin,
-        uint256 _amountTokenMin,
-        address _to
-    )
-        external
-        returns (
-            uint256 amountWrappedBLT,
-            uint256 amountToken,
-            uint256 liquidity
-        )
-    {
-        _safeTransferFrom(
-            _underlyingToken,
-            msg.sender,
-            address(this),
-            _amountToZapIn
-        );
-
-        // first, deposit the underlying to wBLT, deposit function checks that underlying is actually in the LP
-        _amountWrappedBLTDesired = _depositToWrappedBLT(_underlyingToken);
-
-        (amountWrappedBLT, amountToken) = _addLiquidity(
-            address(wBLT),
-            token,
-            false, // stable LPs with wBLT would be kind dumb
-            _amountWrappedBLTDesired,
-            _amountTokenDesired,
-            _amountWrappedBLTMin,
-            _amountTokenMin
-        );
-        address pair = pairFor(address(wBLT), token, false);
-
-        // wBLT will already be in the router, so transfer for it. transferFrom for other token.
-        _safeTransfer(address(wBLT), pair, amountWrappedBLT);
-        _safeTransferFrom(token, msg.sender, pair, amountToken);
-
-        liquidity = IPair(pair).mint(_to);
-        uint256 remainingBalance = wBLT.balanceOf(address(this));
-        // return any leftover wBLT
-        if (remainingBalance > 0) {
-            _safeTransfer(address(wBLT), msg.sender, remainingBalance);
-        }
-    }
-
-    /**
-     * @notice Add liquidity for wBLT-TOKEN with ether.
-     * @param _amountToZapIn Amount of ether to deposit to wBLT.
-     * @param token The token to pair with wBLT for the LP.
-     * @param _amountWrappedBLTDesired The amount of wBLT we would like to deposit to the LP.
-     * @param _amountTokenDesired The amount of other token we would like to deposit to the LP.
-     * @param _amountWrappedBLTMin The minimum amount of wBLT we will accept in the LP.
-     * @param _amountTokenMin The minimum amount of other token we will accept in the LP.
-     * @param _to Address that will receive the LP token.
-     * @return amountWrappedBLT Amount of wBLT actually deposited in the LP.
-     * @return amountToken Amount of our other token actually deposited in the LP.
-     * @return liquidity Amount of LP token generated.
-     */
-    function addLiquidityETH(
-        uint256 _amountToZapIn,
-        address token,
-        uint256 _amountWrappedBLTDesired,
-        uint256 _amountTokenDesired,
-        uint256 _amountWrappedBLTMin,
-        uint256 _amountTokenMin,
-        address _to
-    )
-        external
-        payable
-        returns (
-            uint256 amountWrappedBLT,
-            uint256 amountToken,
-            uint256 liquidity
-        )
-    {
-        // deposit to weth, then everything is the same
-        weth.deposit{value: _amountToZapIn}();
-        if (weth.balanceOf(address(this)) != _amountToZapIn) {
-            revert("WETH not sent");
-        }
-
-        // first, deposit the underlying to wBLT, deposit function checks that underlying is actually in the LP
-        _amountWrappedBLTDesired = _depositToWrappedBLT(address(weth));
-
-        (amountWrappedBLT, amountToken) = _addLiquidity(
-            address(wBLT),
-            token,
-            false, // stable LPs with wBLT would be kind dumb
-            _amountWrappedBLTDesired,
-            _amountTokenDesired,
-            _amountWrappedBLTMin,
-            _amountTokenMin
-        );
-        address pair = pairFor(address(wBLT), token, false);
-
-        // wBLT will already be in the router, so transfer for it. transferFrom for other token.
-        _safeTransfer(address(wBLT), pair, amountWrappedBLT);
-        _safeTransferFrom(token, msg.sender, pair, amountToken);
-        liquidity = IPair(pair).mint(_to);
-
-        // return any leftover wBLT
-        uint256 remainingBalance = wBLT.balanceOf(address(this));
-        if (remainingBalance > 0) {
-            _safeTransfer(address(wBLT), msg.sender, remainingBalance);
-        }
-    }
-
-    /**
-     * @notice Remove liquidity from a wBLT-TOKEN LP, and convert wBLT to a given underlying.
-     * @param _targetToken Address of our desired wBLT underlying to withdraw to.
-     * @param _token The other token paired with wBLT in our LP.
-     * @param _liquidity The amount of LP tokens we want to burn.
-     * @param _amountWrappedBLTMin The minimum amount of wBLT we will accept from the LP.
-     * @param _amountTokenMin The minimum amount of our other token we will accept from the LP.
-     * @param _to Address that will receive the LP token.
-     * @return amountWrappedBLT Amount of wBLT actually received from the LP.
-     * @return amountToken Amount of other token actually received from the LP.
-     * @return amountUnderlying Amount of our underlying token received from the wBLT.
-     */
-    function removeLiquidity(
-        address _targetToken,
-        address _token,
-        uint256 _liquidity,
-        uint256 _amountWrappedBLTMin,
-        uint256 _amountTokenMin,
-        address _to
-    )
-        external
-        returns (
-            uint256 amountWrappedBLT,
-            uint256 amountToken,
-            uint256 amountUnderlying
-        )
-    {
-        // stable is dumb with wBLT
-        address pair = pairFor(address(wBLT), _token, false);
-        // send liquidity to pair
-        require(IPair(pair).transferFrom(msg.sender, pair, _liquidity));
-        (uint256 amount0, uint256 amount1) = IPair(pair).burn(address(this));
-        (address token0, ) = sortTokens(address(wBLT), _token);
-        (amountWrappedBLT, amountToken) = address(wBLT) == token0
-            ? (amount0, amount1)
-            : (amount1, amount0);
-        require(
-            amountWrappedBLT >= _amountWrappedBLTMin,
-            "Router: INSUFFICIENT_A_AMOUNT"
-        );
-        require(
-            amountToken >= _amountTokenMin,
-            "Router: INSUFFICIENT_B_AMOUNT"
-        );
-
-        _safeTransfer(_token, _to, amountToken);
-
-        amountUnderlying = _withdrawFromWrappedBLT(_targetToken);
-        _safeTransfer(_targetToken, _to, amountUnderlying);
-    }
-
-    /**
-     * @notice Remove liquidity from a wBLT-TOKEN LP, and convert wBLT to ether.
-     * @param _token The other token paired with wBLT in our LP.
-     * @param _liquidity The amount of LP tokens we want to burn.
-     * @param _amountWrappedBLTMin The minimum amount of wBLT we will accept from the LP.
-     * @param _amountTokenMin The minimum amount of our other token we will accept from the LP.
-     * @param _to Address that will receive the LP token.
-     * @return amountWrappedBLT Amount of wBLT actually received from the LP.
-     * @return amountToken Amount of other token actually received from the LP.
-     * @return amountUnderlying Amount of ether received from the wBLT.
-     */
-    function removeLiquidityETH(
-        address _token,
-        uint256 _liquidity,
-        uint256 _amountWrappedBLTMin,
-        uint256 _amountTokenMin,
-        address _to
-    )
-        external
-        returns (
-            uint256 amountWrappedBLT,
-            uint256 amountToken,
-            uint256 amountUnderlying
-        )
-    {
-        // stable is dumb with wBLT
-        address pair = pairFor(address(wBLT), _token, false);
-        // send liquidity to pair
-        require(IPair(pair).transferFrom(msg.sender, pair, _liquidity));
-        (uint256 amount0, uint256 amount1) = IPair(pair).burn(address(this));
-        (address token0, ) = sortTokens(address(wBLT), _token);
-        (amountWrappedBLT, amountToken) = address(wBLT) == token0
-            ? (amount0, amount1)
-            : (amount1, amount0);
-        require(
-            amountWrappedBLT >= _amountWrappedBLTMin,
-            "Router: INSUFFICIENT_A_AMOUNT"
-        );
-        require(
-            amountToken >= _amountTokenMin,
-            "Router: INSUFFICIENT_B_AMOUNT"
-        );
-
-        // send our ether and token to their final destination
-        _safeTransfer(_token, _to, amountToken);
-        amountUnderlying = _withdrawFromWrappedBLT(address(weth));
-        weth.withdraw(amountUnderlying);
-        _safeTransferETH(_to, amountUnderlying);
-    }
-
-    /**
-     * @notice Exercise our oToken options using one of wBLT's underlying tokens.
-     * @param _oToken The option token we are exercising.
-     * @param _tokenToUse Address of our desired wBLT underlying to use for exercising our option.
-     * @param _amount The amount of our token to use to generate our wBLT for exercising.
-     * @param _oTokenAmount The amount of option tokens to exercise.
-     * @param _discount Our discount in exercising the option; this determines our lockup time.
-     * @param _deadline Deadline for transaction to complete.
-     * @return paymentAmount How much wBLT we spend to exercise.
-     * @return lpAmount Amount of our LP we generate.
-     */
-    function exerciseLpWithUnderlying(
-        address _oToken,
-        address _tokenToUse,
-        uint256 _amount,
-        uint256 _oTokenAmount,
-        uint256 _discount,
-        uint256 _deadline
-    ) external returns (uint256 paymentAmount, uint256 lpAmount) {
-        // first person does the approvals for everyone else, what a nice person!
-        _checkAllowance(_oToken);
-
-        // transfer in our funds
-        _safeTransferFrom(_tokenToUse, msg.sender, address(this), _amount);
-        _safeTransferFrom(_oToken, msg.sender, address(this), _oTokenAmount);
-        uint256 wBltToLp = _depositToWrappedBLT(_tokenToUse);
-
-        (paymentAmount, lpAmount) = IBMX(_oToken).exerciseLp(
-            _oTokenAmount,
-            wBltToLp,
-            msg.sender,
-            _discount,
-            _deadline
-        );
-
-        // return any leftover wBLT or underlying
-        IERC20 token = IERC20(_tokenToUse);
-        uint256 remainingUnderlying = token.balanceOf(address(this));
-        uint256 remainingBalance = wBLT.balanceOf(address(this));
-
-        if (remainingBalance > 0) {
-            _safeTransfer(address(wBLT), msg.sender, remainingBalance);
-        }
-
-        if (remainingUnderlying > 0) {
-            _safeTransfer(_tokenToUse, msg.sender, remainingUnderlying);
-        }
-    }
-
-    /**
-     * @notice Exercise our oToken options using raw ether.
-     * @param _oToken The option token we are exercising.
-     * @param _amount The amount of ETH to use to generate our wBLT for exercising.
-     * @param _oTokenAmount The amount of option tokens to exercise.
-     * @param _discount Our discount in exercising the option; this determines our lockup time.
-     * @param _deadline Deadline for transaction to complete.
-     * @return paymentAmount How much wBLT we spend to exercise.
-     * @return lpAmount Amount of our LP we generate.
-     */
-    function exerciseLpWithUnderlyingETH(
-        address _oToken,
-        uint256 _amount,
-        uint256 _oTokenAmount,
-        uint256 _discount,
-        uint256 _deadline
-    ) external payable returns (uint256 paymentAmount, uint256 lpAmount) {
-        // first person does the approvals for everyone else, what a nice person!
-        _checkAllowance(_oToken);
-
-        // deposit to weth, then everything is the same
-        weth.deposit{value: _amount}();
-        if (weth.balanceOf(address(this)) != _amount) {
-            revert("WETH not sent");
-        }
-
-        // pull oToken
-        _safeTransferFrom(_oToken, msg.sender, address(this), _oTokenAmount);
-
-        // deposit our WETH to wBLT
-        uint256 wBltToLp = _depositToWrappedBLT(address(weth));
-
-        // exercise as normal
-        (paymentAmount, lpAmount) = IBMX(_oToken).exerciseLp(
-            _oTokenAmount,
-            wBltToLp,
-            msg.sender,
-            _discount,
-            _deadline
-        );
-
-        // return any leftover wBLT or WETH
-        uint256 remainingUnderlying = weth.balanceOf(address(this));
-        uint256 remainingBalance = wBLT.balanceOf(address(this));
-
-        if (remainingBalance > 0) {
-            _safeTransfer(address(wBLT), msg.sender, remainingBalance);
-        }
-
-        if (remainingUnderlying > 0) {
-            _safeTransfer(address(weth), msg.sender, remainingUnderlying);
         }
     }
 
@@ -728,33 +396,6 @@ contract wBLTRouter is Ownable2Step {
         if (wBLT.allowance(address(this), _token) == 0) {
             wBLT.approve(_token, type(uint256).max);
         }
-    }
-
-    /**
-     * @notice Check how much underlying (or ETH) we need to exercise to LP.
-     * @param _oToken The option token we are exercising.
-     * @param _tokenToUse The token to deposit to wBLT.
-     * @param _oTokenAmount The amount of oToken to exercise.
-     * @param _discount Our discount in exercising the option; this determines our lockup time.
-     * @return atomicAmount The amount of token needed if exercising atomically from this calculation.
-     * @return safeAmount Add an extra 0.01% to allow for per-second wBLT share price increases.
-     */
-    function quoteTokenNeededToExerciseLp(
-        address _oToken,
-        address _tokenToUse,
-        uint256 _oTokenAmount,
-        uint256 _discount
-    ) external view returns (uint256 atomicAmount, uint256 safeAmount) {
-        // calculate the exact amount we need
-        (uint256 amountNeeded, uint256 amount2) = IBMX(_oToken)
-            .getPaymentTokenAmountForExerciseLp(_oTokenAmount, _discount);
-
-        amountNeeded += amount2;
-
-        atomicAmount = quoteMintAmountBLT(_tokenToUse, amountNeeded);
-
-        // give ourselves 0.01% of space for wBLT share price rising
-        safeAmount = (atomicAmount * 10_001) / 10_000;
     }
 
     /**
@@ -1064,176 +705,19 @@ contract wBLTRouter is Ownable2Step {
         tokens = wBLT.deposit(newMlp, address(this));
     }
 
-    /**
-     * @notice Zap out into a wBLT LP with an underlying token.
-     * @param _underlyingToken The token to zap in to wBLT.
-     * @param _token The token paired with wBLT.
-     * @param _amountUnderlyingDesired The amount of underlying we would like to deposit.
-     * @param _amountTokenDesired The amount of token to pair with our wBLT.
-     * @return amountUnderlying Amount of underlying token to deposit.
-     * @return amountWrappedBLT Amount of wBLT we will deposit.
-     * @return amountToken Amount of other token to deposit.
-     * @return liquidity Amount of LP token received.
-     */
-    function quoteAddLiquidityUnderlying(
-        address _underlyingToken,
-        address _token,
-        uint256 _amountUnderlyingDesired,
-        uint256 _amountTokenDesired
-    )
-        external
-        view
-        returns (
-            uint256 amountUnderlying,
-            uint256 amountWrappedBLT,
-            uint256 amountToken,
-            uint256 liquidity
-        )
-    {
-        // create the pair if it doesn't exist yet
-        address _pair = IPairFactory(factory).getPair(
-            address(wBLT),
-            _token,
-            false
-        );
-        (uint256 reserveA, uint256 reserveB) = (0, 0);
-        uint256 _totalSupply = 0;
-
-        // convert our _amountUnderlyingDesired to amountWrappedBLTDesired. make sure to underestimate the amount out
-        //  here so no risk of reverting
-        uint256 amountWrappedBLTDesired = getMintAmountWrappedBLT(
-            _underlyingToken,
-            _amountUnderlyingDesired
-        );
-
-        if (_pair != address(0)) {
-            _totalSupply = IERC20(_pair).totalSupply();
-            (reserveA, reserveB) = getReserves(address(wBLT), _token, false);
-        }
-        if (reserveA == 0 && reserveB == 0) {
-            (amountWrappedBLT, amountToken) = (
-                amountWrappedBLTDesired,
-                _amountTokenDesired
-            );
-            liquidity =
-                Math.sqrt(amountWrappedBLT * amountToken) -
-                MINIMUM_LIQUIDITY;
-        } else {
-            uint256 amountTokenOptimal = _quoteLiquidity(
-                amountWrappedBLTDesired,
-                reserveA,
-                reserveB
-            );
-            if (amountTokenOptimal <= _amountTokenDesired) {
-                (amountWrappedBLT, amountToken) = (
-                    amountWrappedBLTDesired,
-                    amountTokenOptimal
-                );
-                liquidity = Math.min(
-                    (amountWrappedBLT * _totalSupply) / reserveA,
-                    (amountToken * _totalSupply) / reserveB
-                );
-            } else {
-                uint256 amountWrappedBLTOptimal = _quoteLiquidity(
-                    _amountTokenDesired,
-                    reserveB,
-                    reserveA
-                );
-                (amountWrappedBLT, amountToken) = (
-                    amountWrappedBLTOptimal,
-                    _amountTokenDesired
-                );
-                liquidity = Math.min(
-                    (amountWrappedBLT * _totalSupply) / reserveA,
-                    (amountToken * _totalSupply) / reserveB
-                );
-            }
-        }
-        // based on the amount of wBLT, calculate how much of our underlying token we need to zap in
-        amountUnderlying = quoteMintAmountBLT(
-            _underlyingToken,
-            amountWrappedBLT
-        );
-    }
-
-    /**
-     * @notice Zap out from a wBLT LP to an underlying token.
-     * @param _underlyingToken The token to withdraw from wBLT.
-     * @param _token The token paired with wBLT.
-     * @param _liquidity The amount of wBLT LP to burn.
-     * @return amountUnderlying Amount of underlying token received.
-     * @return amountWrappedBLT Amount of wBLT token received before being converted to underlying.
-     * @return amountToken Amount of other token received.
-     */
-    function quoteRemoveLiquidityUnderlying(
-        address _underlyingToken,
-        address _token,
-        uint256 _liquidity
-    )
-        external
-        view
-        returns (
-            uint256 amountUnderlying,
-            uint256 amountWrappedBLT,
-            uint256 amountToken
-        )
-    {
-        // create the pair if it doesn't exist yet
-        address _pair = IPairFactory(factory).getPair(
-            address(wBLT),
-            _token,
-            false
-        );
-
-        if (_pair == address(0)) {
-            return (0, 0, 0);
-        }
-
-        (uint256 reserveA, uint256 reserveB) = getReserves(
-            address(wBLT),
-            _token,
-            false
-        );
-        uint256 _totalSupply = IERC20(_pair).totalSupply();
-
-        // using balances ensures pro-rata distribution
-        amountWrappedBLT = (_liquidity * reserveA) / _totalSupply;
-
-        // using balances ensures pro-rata distribution
-        amountToken = (_liquidity * reserveB) / _totalSupply;
-
-        // simulate zapping out of wBLT to the selected underlying
-        amountUnderlying = getRedeemAmountWrappedBLT(
-            _underlyingToken,
-            amountWrappedBLT,
-            false
-        );
-    }
-
     /* ========== UNMODIFIED FUNCTIONS ========== */
 
-    // calculates the CREATE2 address for a pair without making any external calls
-    function pairFor(
+    function poolFor(
         address _tokenA,
         address _tokenB,
         bool _stable
-    ) public view returns (address pair) {
+    ) public view returns (address pool) {
         (address token0, address token1) = sortTokens(_tokenA, _tokenB);
-        pair = address(
-            uint160(
-                uint256(
-                    keccak256(
-                        abi.encodePacked(
-                            hex"ff",
-                            factory,
-                            keccak256(
-                                abi.encodePacked(token0, token1, _stable)
-                            ),
-                            pairCodeHash // init code hash
-                        )
-                    )
-                )
-            )
+        bytes32 salt = keccak256(abi.encodePacked(token0, token1, _stable));
+        pool = Clones.predictDeterministicAddress(
+            IPoolFactory(defaultFactory).implementation(),
+            salt,
+            defaultFactory
         );
     }
 
@@ -1248,36 +732,36 @@ contract wBLTRouter is Ownable2Step {
         require(token0 != address(0), "Router: ZERO_ADDRESS");
     }
 
-    // fetches and sorts the reserves for a pair
+    // fetches and sorts the reserves for a pool
     function getReserves(
         address _tokenA,
         address _tokenB,
         bool _stable
     ) public view returns (uint256 reserveA, uint256 reserveB) {
         (address token0, ) = sortTokens(_tokenA, _tokenB);
-        (uint256 reserve0, uint256 reserve1, ) = IPair(
-            pairFor(_tokenA, _tokenB, _stable)
+        (uint256 reserve0, uint256 reserve1, ) = IPool(
+            poolFor(_tokenA, _tokenB, _stable)
         ).getReserves();
         (reserveA, reserveB) = _tokenA == token0
             ? (reserve0, reserve1)
             : (reserve1, reserve0);
     }
 
-    // determine whether to use stable or volatile pools for a given pair of tokens
+    // determine whether to use stable or volatile pools for a given pool of tokens
     function getAmountOut(
         uint256 _amountIn,
         address _tokenIn,
         address _tokenOut
     ) public view returns (uint256 amount, bool stable) {
-        address pair = pairFor(_tokenIn, _tokenOut, true);
+        address pool = poolFor(_tokenIn, _tokenOut, true);
         uint256 amountStable;
         uint256 amountVolatile;
-        if (IPairFactory(factory).isPair(pair)) {
-            amountStable = IPair(pair).getAmountOut(_amountIn, _tokenIn);
+        if (IPoolFactory(defaultFactory).isPool(pool)) {
+            amountStable = IPool(pool).getAmountOut(_amountIn, _tokenIn);
         }
-        pair = pairFor(_tokenIn, _tokenOut, false);
-        if (IPairFactory(factory).isPair(pair)) {
-            amountVolatile = IPair(pair).getAmountOut(_amountIn, _tokenIn);
+        pool = poolFor(_tokenIn, _tokenOut, false);
+        if (IPoolFactory(defaultFactory).isPool(pool)) {
+            amountVolatile = IPool(pool).getAmountOut(_amountIn, _tokenIn);
         }
         return
             amountStable > amountVolatile
@@ -1287,20 +771,20 @@ contract wBLTRouter is Ownable2Step {
 
     //@override
     //getAmountOut	:	bool stable
-    //Gets exact output for specific pair-type(S|V)
+    //Gets exact output for specific pool-type(S|V)
     function getAmountOut(
         uint256 _amountIn,
         address _tokenIn,
         address _tokenOut,
         bool _stable
     ) public view returns (uint256 amount) {
-        address pair = pairFor(_tokenIn, _tokenOut, _stable);
-        if (IPairFactory(factory).isPair(pair)) {
-            amount = IPair(pair).getAmountOut(_amountIn, _tokenIn);
+        address pool = poolFor(_tokenIn, _tokenOut, _stable);
+        if (IPoolFactory(defaultFactory).isPool(pool)) {
+            amount = IPool(pool).getAmountOut(_amountIn, _tokenIn);
         }
     }
 
-    // given some amount of an asset and pair reserves, returns an equivalent amount of the other asset
+    // given some amount of an asset and pool reserves, returns an equivalent amount of the other asset
     function _quoteLiquidity(
         uint256 _amountA,
         uint256 _reserveA,
@@ -1312,65 +796,6 @@ contract wBLTRouter is Ownable2Step {
             "Router: INSUFFICIENT_LIQUIDITY"
         );
         amountB = (_amountA * _reserveB) / _reserveA;
-    }
-
-    function _addLiquidity(
-        address _tokenA,
-        address _tokenB,
-        bool _stable,
-        uint256 _amountADesired,
-        uint256 _amountBDesired,
-        uint256 _amountAMin,
-        uint256 _amountBMin
-    ) internal returns (uint256 amountA, uint256 amountB) {
-        require(_amountADesired >= _amountAMin);
-        require(_amountBDesired >= _amountBMin);
-
-        address _pair = IPairFactory(factory).getPair(
-            _tokenA,
-            _tokenB,
-            _stable
-        );
-        if (_pair == address(0)) {
-            _pair = IPairFactory(factory).createPair(_tokenA, _tokenB, _stable);
-        }
-
-        // desired is the amount desired to be deposited for each token
-        // optimal of one asset is the amount that is equal in value to our desired of the other asset
-        // so, if our optimal is less than our min, we have an issue and pricing is likely off
-        (uint256 reserveA, uint256 reserveB) = getReserves(
-            _tokenA,
-            _tokenB,
-            _stable
-        );
-        if (reserveA == 0 && reserveB == 0) {
-            (amountA, amountB) = (_amountADesired, _amountBDesired);
-        } else {
-            uint256 amountBOptimal = _quoteLiquidity(
-                _amountADesired,
-                reserveA,
-                reserveB
-            );
-            if (amountBOptimal <= _amountBDesired) {
-                require(
-                    amountBOptimal >= _amountBMin,
-                    "Router: INSUFFICIENT_B_AMOUNT"
-                );
-                (amountA, amountB) = (_amountADesired, amountBOptimal);
-            } else {
-                uint256 amountAOptimal = _quoteLiquidity(
-                    _amountBDesired,
-                    reserveB,
-                    reserveA
-                );
-                assert(amountAOptimal <= _amountADesired);
-                require(
-                    amountAOptimal >= _amountAMin,
-                    "Router: INSUFFICIENT_A_AMOUNT"
-                );
-                (amountA, amountB) = (amountAOptimal, _amountBDesired);
-            }
-        }
     }
 
     function _safeTransferETH(address _to, uint256 _value) internal {
