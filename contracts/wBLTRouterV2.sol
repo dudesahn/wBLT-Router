@@ -8,21 +8,21 @@ import {IFactoryRegistry, IPoolFactory, IPool} from "./interfaces/AerodromeInter
 import {IERC20, IWETH, IBMX, VaultAPI, IShareHelper} from "./interfaces/BMXInterfaces.sol";
 
 /**
- * @title wBLT Router V2
- * @notice This contract simplifies conversions between wBLT, BMX, and other assets
- *  using wBLT's underlying tokens as virtual pools with wBLT. V2 built on top of Aerodrome.
+ * @title wMLT Router
+ * @notice This contract simplifies conversions between wMLT, BMX, and other assets
+ *  using wMLT's underlying tokens as virtual pools with wMLT. Built on top of Velodrome on Mode.
  */
 
-contract wBLTRouterV2 is Ownable2Step {
+contract wMLTRouter is Ownable2Step {
     struct Route {
         address from;
         address to;
         bool stable;
     }
 
-    /// @notice Aerodrome V2 (vAMM/sAMM) pool factory
+    /// @notice Velodrome V2 (vAMM/sAMM) Mode pool factory
     address public constant defaultFactory =
-        0x420DD381b31aEf6683db6B902084cB0FFECe40Da;
+        0x31832f2a97Fd20664D76Cc421207669b55CE4BC0;
 
     IWETH public constant weth =
         IWETH(0x4200000000000000000000000000000000000006);
@@ -34,25 +34,25 @@ contract wBLTRouterV2 is Ownable2Step {
 
     // contracts used for wBLT mint/burn
     VaultAPI internal constant wBLT =
-        VaultAPI(0x4E74D4Db6c0726ccded4656d0BCE448876BB4C7A);
+        VaultAPI(0x8b2EeA0999876AAB1E7955fe01A5D261b570452C);
 
     IBMX internal constant sBLT =
-        IBMX(0x64755939a80BC89E1D2d0f93A312908D348bC8dE);
+        IBMX(0x0Eb231766cD891ed6aA4FafEeF60E1c01b18c12a);
 
     IBMX internal constant rewardRouter =
-        IBMX(0x49A97680938B4F1f73816d1B70C3Ab801FAd124B);
+        IBMX(0x73bF80506F891030570FDC4D53a71f44a442353C);
 
     IBMX internal constant morphexVault =
-        IBMX(0xec8d8D4b215727f3476FF0ab41c406FA99b4272C);
+        IBMX(0xff745bdB76AfCBa9d3ACdCd71664D4250Ef1ae49);
 
     IBMX internal constant bltManager =
-        IBMX(0x9fAc7b75f367d5B35a6D6D0a09572eFcC3D406C5);
+        IBMX(0xf9Fc0B2859f9B6d33fD1Cea5B0A9f1D56C258178);
 
     IBMX internal constant vaultUtils =
-        IBMX(0xec31c83C5689C66cb77DdB5378852F3707022039);
+        IBMX(0x7Fb62EfF63DEE8b6D6654858c75E925C08811B46);
 
     IShareHelper internal constant shareValueHelper =
-        IShareHelper(0x4d2ED72285206D2b4b59CDA21ED0a979ad1F497f);
+        IShareHelper(0xC3a1216913B392a1B216c296410Dc9CaA1c6289F);
 
     constructor() {
         // do approvals for wBLT
@@ -665,7 +665,7 @@ contract wBLTRouterV2 is Ownable2Step {
 
         // withdraw our targetToken
         return
-            rewardRouter.unstakeAndRedeemGlp(
+            rewardRouter.unstakeAndRedeemBlt(
                 _targetToken,
                 toWithdraw,
                 0,
@@ -683,7 +683,7 @@ contract wBLTRouterV2 is Ownable2Step {
 
         // deposit to BLT and then the vault
         IERC20 token = IERC20(_fromToken);
-        uint256 newMlp = rewardRouter.mintAndStakeGlp(
+        uint256 newMlp = rewardRouter.mintAndStakeBlt(
             address(_fromToken),
             token.balanceOf(address(this)),
             0,
