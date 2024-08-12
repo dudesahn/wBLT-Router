@@ -2,7 +2,7 @@
 pragma solidity ^0.8.15;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 interface IVault is IERC20 {
     // returns value of one wMLP in MLP tokens
@@ -14,7 +14,7 @@ interface IMlpManager {
     function getAum(bool maximise) external view returns (uint256);
 }
 
-contract wMlpPessimisticOracle is Ownable {
+contract wMlpPessimisticOracle is Ownable2Step {
     /* ========== STATE VARIABLES ========== */
 
     /// @notice Morphex's MLP Manager, use this to pull our total AUM in MLP.
