@@ -14,7 +14,7 @@ interface IMlpManager {
     function getAum(bool maximise) external view returns (uint256);
 }
 
-contract wMlpPessimisticOracle is Ownable2Step {
+contract wMltPessimisticOracle is Ownable2Step {
     /* ========== STATE VARIABLES ========== */
 
     /// @notice Morphex's MLP Manager, use this to pull our total AUM in MLP.
@@ -39,7 +39,6 @@ contract wMlpPessimisticOracle is Ownable2Step {
         mlpManager = _mlpManager;
         mlp = _mlp;
         wMlp = _wMlp;
-        manualPriceCap = 1.5e18;
     }
 
     /* ========== EVENTS ========== */
@@ -61,7 +60,7 @@ contract wMlpPessimisticOracle is Ownable2Step {
     }
 
     /// @notice Gets the current price of wMLP colateral
-    /// @dev Return our price using a standard Chainlink aggregator interface
+    /// @dev Return our price using a standard Chainlink aggregator interface. Use block.timestamp for non-price values.
     /// @return The 48-hour low price of wMLP
     function latestRoundData()
         public
@@ -69,11 +68,29 @@ contract wMlpPessimisticOracle is Ownable2Step {
         returns (uint80, int256, uint256, uint256, uint80)
     {
         return (
-            uint80(0),
+            uint80(block.timestamp),
             int256(_getPrice()),
-            uint256(0),
-            uint256(0),
-            uint80(0)
+            uint256(block.timestamp),
+            uint256(block.timestamp),
+            uint80(block.timestamp)
+        );
+    }
+
+    /// @notice Gets the current price of wMLP colateral
+    /// @param _roundId This is a dummy param, as this will always return current pricing data.
+    /// @dev Return our price using a standard Chainlink aggregator interface.
+    /// @return The 48-hour low price of wMLP
+    function getRoundData(uint80 _roundId)
+        public
+        view
+        returns (uint80, int256, uint256, uint256, uint80)
+    {
+        return (
+            _roundId,
+            int256(_getPrice()),
+            uint256(block.timestamp),
+            uint256(block.timestamp),
+            _roundId
         );
     }
 
@@ -119,16 +136,10 @@ contract wMlpPessimisticOracle is Ownable2Step {
         view
         returns (uint256 normalizedPrice)
     {
-        // aum reported in USD with 30 decimals
-        uint256 mlpPrice = (mlpManager.getAum(false) * 1e6) / mlp.totalSupply();
+        normalizedPrice = getLivePrice();
 
-        // add in vault gains
-        uint256 sharePrice = wMlp.pricePerShare();
-
-        normalizedPrice = (mlpPrice * sharePrice) / 1e18;
-
-        // use a hard cap to protect against oracle pricing errors
-        if (normalizedPrice > manualPriceCap) {
+        // we can use a hard cap to protect against oracle pricing errors if we want
+        if (manualPriceCap != 0 && normalizedPrice > manualPriceCap) {
             normalizedPrice = manualPriceCap;
         }
     }
